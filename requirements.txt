@@ -1,0 +1,13 @@
+pandas
+numpy
+scikit-learn
+pyarrow
+PyYAML
+joblib
+dvc
+dvc-s3
+mlflow
+dagshub
+python-dotenv
+pytest
+ruff

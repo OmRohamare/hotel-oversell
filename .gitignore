@@ -1,0 +1,49 @@
+# Virtual environment
+.venv/
+venv/
+env/
+
+# Python cache / build
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# Local secrets
+.env
+.env.*
+!.env.example
+*.pem
+secrets/
+.dvc/config.local
+
+# Temporary files
+*.tmp
+*.temp
+*.swp
+.DS_Store
+Thumbs.db
+
+# Logs (keep the folder, ignore its contents)
+*.log
+logs/*
+!logs/.gitkeep
+
+# Local experiment tracking fallback
+mlruns/
+dvclive/
+
+# Raw data is versioned by DVC, not Git (the .dvc pointer file IS committed)
+data/raw/*.csv
+data/interim/*
+data/processed/*
+!data/interim/.gitkeep
+!data/processed/.gitkeep
+
+# Model artifacts (tracked by DVC / MLflow)
+models/*.joblib
+models/*.pkl
+artifacts/*
+!artifacts/.gitkeep

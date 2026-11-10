@@ -9,6 +9,8 @@ Required environment variables (see .env.example):
     DAGSHUB_USER_TOKEN        your DagsHub access token
 (MLFLOW_TRACKING_USERNAME / MLFLOW_TRACKING_PASSWORD are used if already set.)
 """
+from src.logger import get_logger
+logger = get_logger(__name__)
 from __future__ import annotations
 
 import os

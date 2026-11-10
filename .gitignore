@@ -47,3 +47,6 @@ models/*.joblib
 models/*.pkl
 artifacts/*
 !artifacts/.gitkeep
+
+# Editor settings
+.vscode/

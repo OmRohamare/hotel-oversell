@@ -17,7 +17,7 @@ Use your **own** access key. Never share keys or commit them.
 aws configure
 # AWS Access Key ID:     <your key>
 # AWS Secret Access Key: <your secret>
-# Default region name:   <REGION>
+# Default region name:   ap-southeast-2
 ```
 
 ### Clone and install

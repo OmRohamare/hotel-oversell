@@ -38,7 +38,7 @@ stages:
           cache: false
 
   backtest:
-    cmd: python -m src.backtest
+    cmd: python -m src.backtest --stage-only
     deps:
       - data/processed/dedup
       - data/processed/raw

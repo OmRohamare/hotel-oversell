@@ -1,0 +1,27 @@
+{
+  "variant": "raw",
+  "chosen_on": "2016-07-01 to 2017-01-01",
+  "headline_model": "3 Logistic",
+  "buffers": {
+    "1 Flat rule": {
+      "family": "spread",
+      "buffer": 3.25,
+      "ceiling_met_on_choose": true
+    },
+    "2 Segment table": {
+      "family": "spread",
+      "buffer": 3.0,
+      "ceiling_met_on_choose": true
+    },
+    "3 Logistic": {
+      "family": "constant",
+      "buffer": 0.0,
+      "ceiling_met_on_choose": true
+    },
+    "4 Random forest": {
+      "family": "constant",
+      "buffer": 0.0,
+      "ceiling_met_on_choose": true
+    }
+  }
+}

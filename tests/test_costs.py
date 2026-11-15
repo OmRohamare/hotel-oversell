@@ -1,4 +1,5 @@
 """Tests for src/costs.py: the oversell rule and the euro comparison."""
+
 from __future__ import annotations
 
 import numpy as np
@@ -15,20 +16,30 @@ from src.costs import (
 
 
 def _nightly() -> pd.DataFrame:
-    index = pd.MultiIndex.from_product([["City Hotel"], pd.date_range("2017-03-01", periods=4)],
-                                       names=["hotel", "date"])
-    return pd.DataFrame({
-        "expected": [10.0, 3.2, 0.4, 20.0],
-        "spread": [2.0, 1.0, 0.5, 3.0],
-        "cancelled": [9, 3, 0, 15],
-        "book": [12, 3, 5, 8],
-        "stay_value": [200.0, 150.0, 100.0, 180.0],
-    }, index=index)
+    index = pd.MultiIndex.from_product(
+        [["City Hotel"], pd.date_range("2017-03-01", periods=4)],
+        names=["hotel", "date"],
+    )
+    return pd.DataFrame(
+        {
+            "expected": [10.0, 3.2, 0.4, 20.0],
+            "spread": [2.0, 1.0, 0.5, 3.0],
+            "cancelled": [9, 3, 0, 15],
+            "book": [12, 3, 5, 8],
+            "stay_value": [200.0, 150.0, 100.0, 180.0],
+        },
+        index=index,
+    )
 
 
 def test_constant_buffer_formula():
     k = oversell(_nightly(), "constant", 2)
-    assert list(k) == [8, 1, 0, 8]  # floor(expected - 2), floored at 0, capped at bookings
+    assert list(k) == [
+        8,
+        1,
+        0,
+        8,
+    ]  # floor(expected - 2), floored at 0, capped at bookings
 
 
 def test_spread_buffer_formula():
@@ -39,13 +50,20 @@ def test_spread_buffer_formula():
 def test_zero_buffer_is_floor_of_expected():
     nt = _nightly()
     k = oversell(nt, "constant", 0)
-    assert list(k) == [int(np.floor(e)) if e < b else b
-                       for e, b in zip(nt.expected, nt.book, strict=True)]
+    assert list(k) == [
+        int(np.floor(e)) if e < b else b
+        for e, b in zip(nt.expected, nt.book, strict=True)
+    ]
 
 
 def test_never_negative_and_never_above_bookings():
     nt = _nightly()
-    for family, value in [("constant", 0), ("constant", 5), ("spread", 0), ("spread", 3)]:
+    for family, value in [
+        ("constant", 0),
+        ("constant", 5),
+        ("spread", 0),
+        ("spread", 3),
+    ]:
         k = oversell(nt, family, value)
         assert (k >= 0).all() and (k <= nt.book).all()
 
@@ -79,6 +97,7 @@ def test_empty_nightly_table_is_rejected():
 
 # ---- tests that use the client's contract (skipped if contract.py is not in the repo) ----------
 
+
 def test_client_rule_constants(contract):
     assert contract.WALK_COST == 300
     assert contract.WALK_CEILING == 10
@@ -107,8 +126,10 @@ def test_proof_table_needs_the_baseline(contract):
 
 def test_proof_table_savings_are_measured_against_the_flat_rule(contract):
     nightly = {"1 Flat rule": _nightly(), "2 Logistic": _nightly()}
-    frozen = {"1 Flat rule": {"family": "constant", "buffer": 1.0},
-              "2 Logistic": {"family": "constant", "buffer": 1.0}}
+    frozen = {
+        "1 Flat rule": {"family": "constant", "buffer": 1.0},
+        "2 Logistic": {"family": "constant", "buffer": 1.0},
+    }
     tbl = proof_table(nightly, frozen, "1 Flat rule")
     assert tbl.loc["1 Flat rule", "saving_vs_flat_eur"] == 0
     assert tbl.loc["2 Logistic", "saving_vs_flat_eur"] == pytest.approx(0)

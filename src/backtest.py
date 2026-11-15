@@ -8,6 +8,7 @@
 Every method returns one cancellation probability per booking, so the same cost rule scores all
 of them on the same nights. Notebook cells: 18 (methods), 20 and 22 (diagnostics, drift).
 """
+
 from __future__ import annotations
 
 import argparse
@@ -48,7 +49,12 @@ FLAT = "1 Flat rule"
 SEGMENT = "2 Segment table"
 LOGISTIC = "3 Logistic"
 FOREST = "4 Random forest"
-SLUGS = {FLAT: "flat_rule", SEGMENT: "segment_table", LOGISTIC: "logistic", FOREST: "random_forest"}
+SLUGS = {
+    FLAT: "flat_rule",
+    SEGMENT: "segment_table",
+    LOGISTIC: "logistic",
+    FOREST: "random_forest",
+}
 SEG = ["hotel", "market_segment", "distribution_channel"]
 
 
@@ -63,7 +69,9 @@ class FlatRate:
         return self
 
     def predict_proba(self, frame: pd.DataFrame) -> np.ndarray:
-        return frame["hotel"].map(self.rate_).fillna(self.overall_).to_numpy(dtype=float)
+        return (
+            frame["hotel"].map(self.rate_).fillna(self.overall_).to_numpy(dtype=float)
+        )
 
 
 class SegmentTable:
@@ -116,16 +124,31 @@ class _PooledSklearn:
 class LogisticMethod(_PooledSklearn):
     name = LOGISTIC
 
-    def __init__(self, pool_top: dict[str, int], C: float, max_iter: int, min_frequency: int):
+    def __init__(
+        self, pool_top: dict[str, int], C: float, max_iter: int, min_frequency: int
+    ):
         super().__init__(pool_top)
         self.C, self.max_iter, self.min_frequency = C, max_iter, min_frequency
 
     def _pipeline(self) -> Pipeline:
-        pre = ColumnTransformer([
-            ("c", OneHotEncoder(handle_unknown="ignore", min_frequency=self.min_frequency), CAT),
-            ("n", StandardScaler(), NUM),
-        ])
-        return Pipeline([("pre", pre), ("est", LogisticRegression(max_iter=self.max_iter, C=self.C))])
+        pre = ColumnTransformer(
+            [
+                (
+                    "c",
+                    OneHotEncoder(
+                        handle_unknown="ignore", min_frequency=self.min_frequency
+                    ),
+                    CAT,
+                ),
+                ("n", StandardScaler(), NUM),
+            ]
+        )
+        return Pipeline(
+            [
+                ("pre", pre),
+                ("est", LogisticRegression(max_iter=self.max_iter, C=self.C)),
+            ]
+        )
 
 
 class ForestMethod(_PooledSklearn):
@@ -137,8 +160,17 @@ class ForestMethod(_PooledSklearn):
 
     def _pipeline(self) -> Pipeline:
         pre = ColumnTransformer(
-            [("c", OrdinalEncoder(handle_unknown="use_encoded_value", unknown_value=-1), CAT)],
-            remainder="passthrough")
+            [
+                (
+                    "c",
+                    OrdinalEncoder(
+                        handle_unknown="use_encoded_value", unknown_value=-1
+                    ),
+                    CAT,
+                )
+            ],
+            remainder="passthrough",
+        )
         return Pipeline([("pre", pre), ("est", clone(self.estimator))])
 
 
@@ -146,21 +178,39 @@ def build_methods(params: dict) -> dict:
     """Create the four unfitted methods from params.yaml."""
     seed = params["seed"]
     top = params["features"]["pool_top"]
-    seg, lg, rf = (params["models"][k] for k in ("segment_table", "logistic", "random_forest"))
+    seg, lg, rf = (
+        params["models"][k] for k in ("segment_table", "logistic", "random_forest")
+    )
     return {
         FLAT: FlatRate(),
         SEGMENT: SegmentTable(seg["shrink_m"]),
-        LOGISTIC: LogisticMethod(top, lg["C"], lg["max_iter"], params["features"]["min_frequency"]),
-        FOREST: ForestMethod(top, RandomForestClassifier(
-            n_estimators=rf["n_estimators"], min_samples_leaf=rf["min_samples_leaf"],
-            max_features=rf["max_features"], n_jobs=rf["n_jobs"], random_state=seed)),
+        LOGISTIC: LogisticMethod(
+            top, lg["C"], lg["max_iter"], params["features"]["min_frequency"]
+        ),
+        FOREST: ForestMethod(
+            top,
+            RandomForestClassifier(
+                n_estimators=rf["n_estimators"],
+                min_samples_leaf=rf["min_samples_leaf"],
+                max_features=rf["max_features"],
+                n_jobs=rf["n_jobs"],
+                random_state=seed,
+            ),
+        ),
     }
 
 
 def fit_all(train: pd.DataFrame, params: dict) -> dict:
     """Fit every method on the training period and return them by name."""
-    require_params(params, "seed", "features.pool_top", "features.min_frequency",
-                   "models.segment_table", "models.logistic", "models.random_forest")
+    require_params(
+        params,
+        "seed",
+        "features.pool_top",
+        "features.min_frequency",
+        "models.segment_table",
+        "models.logistic",
+        "models.random_forest",
+    )
     if train.empty or train[TARGET].nunique() < 2:
         raise ValueError("training data must contain both cancelled and kept bookings")
     methods = build_methods(params)
@@ -232,20 +282,39 @@ def choose_diagnostics(methods: dict, choose: pd.DataFrame) -> pd.DataFrame:
         else:
             auc = float("nan")
             logger.warning("choose period has one class only; AUC not defined")
-        rows.append({"method": name, "AUC (info only)": auc, "mean err (rooms/night)": err.mean(),
-                     "MAE (rooms/night)": err.abs().mean(), "avg spread": nt.spread.mean()})
+        rows.append(
+            {
+                "method": name,
+                "AUC (info only)": auc,
+                "mean err (rooms/night)": err.mean(),
+                "MAE (rooms/night)": err.abs().mean(),
+                "avg spread": nt.spread.mean(),
+            }
+        )
         if err.mean() < -1:
-            logger.warning("%s expects fewer cancellations than happen (mean err %.2f rooms/night); "
-                           "its buffer may sit at 0", name, err.mean())
+            logger.warning(
+                "%s expects fewer cancellations than happen (mean err %.2f rooms/night); "
+                "its buffer may sit at 0",
+                name,
+                err.mean(),
+            )
     return pd.DataFrame(rows).set_index("method")
 
 
 def drift_table(train: pd.DataFrame, choose: pd.DataFrame) -> pd.DataFrame:
     """What moved after the training year: cancellation rate, Non Refund share, lead time."""
+
     def stats(f):
-        return [f[TARGET].mean(), (f.deposit_type == "Non Refund").mean(), f.lead_time.mean()]
-    return pd.DataFrame({"train": stats(train), "choose": stats(choose)},
-                        index=["cancel rate", "share Non Refund", "mean lead time (days)"])
+        return [
+            f[TARGET].mean(),
+            (f.deposit_type == "Non Refund").mean(),
+            f.lead_time.mean(),
+        ]
+
+    return pd.DataFrame(
+        {"train": stats(train), "choose": stats(choose)},
+        index=["cancel rate", "share Non Refund", "mean lead time (days)"],
+    )
 
 
 @log_stage("backtest")
@@ -265,7 +334,9 @@ def main() -> None:
         except OSError as exc:
             logger.error("Could not write backtest reports: %s", exc)
             raise
-        logger.info("[%s] choose-period diagnostics:\n%s", slug, diag.round(2).to_string())
+        logger.info(
+            "[%s] choose-period diagnostics:\n%s", slug, diag.round(2).to_string()
+        )
 
 
 def show_proof_tables(params: dict) -> bool:
@@ -280,12 +351,16 @@ def show_proof_tables(params: dict) -> bool:
         if not path.exists():
             continue
         tbl = pd.read_csv(path, index_col=0)
-        print(f"\n=== Proof period, {VARIANT_LABELS[slug]}: every method, frozen buffers ===")
+        print(
+            f"\n=== Proof period, {VARIANT_LABELS[slug]}: every method, frozen buffers ==="
+        )
         print(tbl.round(2).to_string())
         shown = True
     if not shown:
-        print("\nThe proof period has not been scored yet. When the team agrees the buffers are "
-              "final, run it ONCE with:  python src/backtest.py --prove")
+        print(
+            "\nThe proof period has not been scored yet. When the team agrees the buffers are "
+            "final, run it ONCE with:  python src/backtest.py --prove"
+        )
     return shown
 
 
@@ -297,10 +372,17 @@ def cli(argv=None) -> None:
     --prove: also score the proof period (once; every run is logged in docs/PROVE_RUNS.txt).
     --stage-only: fit and save only (what the DVC `backtest` stage runs).
     """
-    ap = argparse.ArgumentParser(description="Fit all methods, freeze buffers, show the proof table")
-    ap.add_argument("--stage-only", action="store_true", help="only fit and save the models")
-    ap.add_argument("--prove", action="store_true",
-                    help="also score the proof period; do this once, after the buffers are final")
+    ap = argparse.ArgumentParser(
+        description="Fit all methods, freeze buffers, show the proof table"
+    )
+    ap.add_argument(
+        "--stage-only", action="store_true", help="only fit and save the models"
+    )
+    ap.add_argument(
+        "--prove",
+        action="store_true",
+        help="also score the proof period; do this once, after the buffers are final",
+    )
     args = ap.parse_args(argv)
     if args.stage_only and args.prove:
         ap.error("--stage-only and --prove cannot be combined")
@@ -310,9 +392,11 @@ def cli(argv=None) -> None:
         return
     # imported here because these modules import this one
     from src.freeze_buffer import main as freeze_main
+
     freeze_main()
     if args.prove:
         from src.prove import main as prove_main
+
         prove_main()
     show_proof_tables(load_params())
 

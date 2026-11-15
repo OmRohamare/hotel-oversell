@@ -1,4 +1,5 @@
 """Feature definitions: only columns known on the day of booking may be used."""
+
 from __future__ import annotations
 
 import pandas as pd
@@ -9,33 +10,72 @@ logger = get_logger(__name__)
 
 AUDIT = {
     "known at booking": [
-        "hotel", "lead_time", "arrival_date_month", "arrival_date_week_number",
-        "arrival_date_day_of_month", "stays_in_weekend_nights", "stays_in_week_nights",
-        "adults", "children", "babies", "meal", "country", "market_segment",
-        "distribution_channel", "is_repeated_guest", "previous_cancellations",
-        "previous_bookings_not_canceled", "reserved_room_type", "deposit_type",
-        "agent", "company", "days_in_waiting_list", "customer_type", "adr",
+        "hotel",
+        "lead_time",
+        "arrival_date_month",
+        "arrival_date_week_number",
+        "arrival_date_day_of_month",
+        "stays_in_weekend_nights",
+        "stays_in_week_nights",
+        "adults",
+        "children",
+        "babies",
+        "meal",
+        "country",
+        "market_segment",
+        "distribution_channel",
+        "is_repeated_guest",
+        "previous_cancellations",
+        "previous_bookings_not_canceled",
+        "reserved_room_type",
+        "deposit_type",
+        "agent",
+        "company",
+        "days_in_waiting_list",
+        "customer_type",
+        "adr",
     ],
     "changes after booking (excluded to be safe)": [
-        "booking_changes", "required_car_parking_spaces",
-        "total_of_special_requests", "assigned_room_type",
+        "booking_changes",
+        "required_car_parking_spaces",
+        "total_of_special_requests",
+        "assigned_room_type",
     ],
     "the outcome itself (never a feature)": [
-        "reservation_status", "reservation_status_date", "is_canceled",
+        "reservation_status",
+        "reservation_status_date",
+        "is_canceled",
     ],
-    "bookkeeping, not a feature": ["arrival_date_year", "arrival_date", "is_dup", "row_key"],
+    "bookkeeping, not a feature": [
+        "arrival_date_year",
+        "arrival_date",
+        "is_dup",
+        "row_key",
+    ],
 }
 
 FEATURES = list(AUDIT["known at booking"])
 CAT = [
-    "hotel", "arrival_date_month", "meal", "country", "market_segment",
-    "distribution_channel", "reserved_room_type", "deposit_type",
-    "agent", "company", "customer_type",
+    "hotel",
+    "arrival_date_month",
+    "meal",
+    "country",
+    "market_segment",
+    "distribution_channel",
+    "reserved_room_type",
+    "deposit_type",
+    "agent",
+    "company",
+    "customer_type",
 ]
 NUM = [c for c in FEATURES if c not in CAT]
 BOOKKEEPING = list(AUDIT["bookkeeping, not a feature"])
-EXCLUDED = [c for key, cols in AUDIT.items()
-            if key not in ("known at booking", "bookkeeping, not a feature") for c in cols]
+EXCLUDED = [
+    c
+    for key, cols in AUDIT.items()
+    if key not in ("known at booking", "bookkeeping, not a feature")
+    for c in cols
+]
 NON_FEATURES = EXCLUDED + BOOKKEEPING
 
 

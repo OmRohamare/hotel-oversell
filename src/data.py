@@ -1,4 +1,5 @@
 """Data access: the raw CSV (DVC + S3), parquet files, JSON and the client's contract."""
+
 from __future__ import annotations
 
 import importlib
@@ -33,7 +34,9 @@ def read_raw(rev: str | None = None, source: str | None = None) -> pd.DataFrame:
         if source == "dvc":
             import dvc.api  # imported here so unit tests need not install DVC
 
-            logger.info("Fetching %s via DVC (rev=%s)", RAW_REL, rev or "current checkout")
+            logger.info(
+                "Fetching %s via DVC (rev=%s)", RAW_REL, rev or "current checkout"
+            )
             with dvc.api.open(RAW_REL, repo=str(ROOT), rev=rev, mode="r") as f:
                 df = pd.read_csv(f)
         elif source == "local":
@@ -48,8 +51,11 @@ def read_raw(rev: str | None = None, source: str | None = None) -> pd.DataFrame:
     except ValueError:
         raise
     except Exception as exc:
-        logger.error("Could not fetch raw data (%s). Check `aws configure`, the DVC remote "
-                     "and your network, then retry.", type(exc).__name__)
+        logger.error(
+            "Could not fetch raw data (%s). Check `aws configure`, the DVC remote "
+            "and your network, then retry.",
+            type(exc).__name__,
+        )
         raise RuntimeError(f"could not fetch {RAW_REL}: {exc}") from exc
 
     if df.shape != expected:
@@ -65,8 +71,13 @@ def arrival_date(df: pd.DataFrame) -> pd.Series:
     missing = [c for c in needed if c not in df.columns]
     if missing:
         raise ValueError(f"cannot build arrival_date, missing columns: {missing}")
-    text = (df["arrival_date_year"].astype(str) + "-" + df["arrival_date_month"].astype(str)
-            + "-" + df["arrival_date_day_of_month"].astype(str))
+    text = (
+        df["arrival_date_year"].astype(str)
+        + "-"
+        + df["arrival_date_month"].astype(str)
+        + "-"
+        + df["arrival_date_day_of_month"].astype(str)
+    )
     dates = pd.to_datetime(text, format="%Y-%B-%d", errors="coerce")
     bad = int(dates.isna().sum())
     if bad:
@@ -81,7 +92,9 @@ def read_parquet_checked(path: Path, required: list[str] | None = None) -> pd.Da
     try:
         df = pd.read_parquet(path)
     except FileNotFoundError:
-        logger.error("Input missing: %s. Run the earlier pipeline stage (dvc repro) first.", path)
+        logger.error(
+            "Input missing: %s. Run the earlier pipeline stage (dvc repro) first.", path
+        )
         raise
     except Exception as exc:
         logger.error("Could not read %s: %s", path, exc)
@@ -92,8 +105,12 @@ def read_parquet_checked(path: Path, required: list[str] | None = None) -> pd.Da
         raise ValueError(f"{path.name} is missing columns {missing}")
     if df.empty:
         raise ValueError(f"{path.name} contains no rows")
-    log_dataframe_summary(logger, df, path.name,
-                          date_col="arrival_date" if "arrival_date" in df.columns else None)
+    log_dataframe_summary(
+        logger,
+        df,
+        path.name,
+        date_col="arrival_date" if "arrival_date" in df.columns else None,
+    )
     return df
 
 
@@ -101,7 +118,9 @@ def load_period(slug: str, period: str) -> pd.DataFrame:
     """Read one period ('train', 'choose' or 'proof') of one data variant ('dedup' or 'raw')."""
     if period not in ("train", "choose", "proof"):
         raise ValueError(f"unknown period {period!r}")
-    return read_parquet_checked(PROCESSED / slug / f"{period}.parquet", ["arrival_date", TARGET])
+    return read_parquet_checked(
+        PROCESSED / slug / f"{period}.parquet", ["arrival_date", TARGET]
+    )
 
 
 def write_parquet(df: pd.DataFrame, path: Path) -> None:
@@ -161,6 +180,7 @@ def load_contract():
                     raise
                 logger.debug("contract.py not found in the repo root or src/")
                 raise ModuleNotFoundError(
-                    "contract.py (the client's rule) is needed in the repo root or src/") from exc2
+                    "contract.py (the client's rule) is needed in the repo root or src/"
+                ) from exc2
         _contract = module
     return _contract

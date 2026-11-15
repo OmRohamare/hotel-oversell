@@ -1,4 +1,5 @@
 """Tests for src/validate.py: duplicate flags, column audit and cleaning decisions."""
+
 from __future__ import annotations
 
 import numpy as np

@@ -2,6 +2,7 @@
 
 Not AUC tuning: that is out of scope. This only searches the buffer grid.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -17,14 +18,20 @@ logger = get_logger(__name__)
 
 def build_grid(params: dict) -> list[tuple[str, float]]:
     """Constant buffers 0..constant_max, and spread buffers z * spread for z on a grid."""
-    require_params(params, "buffer_grid.constant_max", "buffer_grid.spread_max",
-                   "buffer_grid.spread_step")
+    require_params(
+        params,
+        "buffer_grid.constant_max",
+        "buffer_grid.spread_max",
+        "buffer_grid.spread_step",
+    )
     g = params["buffer_grid"]
     if g["spread_step"] <= 0 or g["constant_max"] < 0 or g["spread_max"] < 0:
         raise ValueError("buffer_grid values must be positive")
     grid = [("constant", float(v)) for v in range(int(g["constant_max"]) + 1)]
-    grid += [("spread", round(float(z), 2))
-             for z in np.arange(0, g["spread_max"] + 1e-9, g["spread_step"])]
+    grid += [
+        ("spread", round(float(z), 2))
+        for z in np.arange(0, g["spread_max"] + 1e-9, g["spread_step"])
+    ]
     return grid
 
 
@@ -58,5 +65,7 @@ def choose_headline(choose_tbl: pd.DataFrame) -> str:
     ok = choose_tbl[choose_tbl.ceiling_met_on_choose]
     if len(ok):
         return str(ok.cost_eur.idxmin())
-    logger.warning("no method meets the ceiling on the choose period; using the fewest walks")
+    logger.warning(
+        "no method meets the ceiling on the choose period; using the fewest walks"
+    )
     return str(choose_tbl.walks_per_1000.idxmin())

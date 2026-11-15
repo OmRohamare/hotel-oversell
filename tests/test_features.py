@@ -1,4 +1,5 @@
 """Tests for src/features.py: only columns known at booking may feed a method."""
+
 from __future__ import annotations
 
 import pandas as pd
@@ -23,7 +24,12 @@ def test_no_excluded_column_is_a_feature():
 
 
 def test_bookkeeping_columns_are_never_features():
-    assert set(BOOKKEEPING) == {"arrival_date_year", "arrival_date", "is_dup", "row_key"}
+    assert set(BOOKKEEPING) == {
+        "arrival_date_year",
+        "arrival_date",
+        "is_dup",
+        "row_key",
+    }
     assert not set(FEATURES) & set(BOOKKEEPING)
     assert not set(FEATURES) & set(NON_FEATURES)
 
@@ -34,8 +40,12 @@ def test_outcome_columns_are_never_features():
 
 
 def test_post_booking_columns_are_excluded():
-    for col in ["booking_changes", "required_car_parking_spaces",
-                "total_of_special_requests", "assigned_room_type"]:
+    for col in [
+        "booking_changes",
+        "required_car_parking_spaces",
+        "total_of_special_requests",
+        "assigned_room_type",
+    ]:
         assert col in EXCLUDED and col not in FEATURES
 
 

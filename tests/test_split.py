@@ -1,4 +1,5 @@
 """Tests for src/split.py: the split is by arrival date, never random."""
+
 from __future__ import annotations
 
 import pandas as pd
@@ -9,10 +10,17 @@ from src.split import check_no_group_straddles, check_split, variant_frames
 from src.validate import flag_duplicates
 
 
-def _period(start: str, end: str, n: int = 50, hotel: str = "City Hotel") -> pd.DataFrame:
+def _period(
+    start: str, end: str, n: int = 50, hotel: str = "City Hotel"
+) -> pd.DataFrame:
     dates = pd.date_range(start, end, periods=n)
-    return pd.DataFrame({"arrival_date": dates, "is_canceled": [i % 2 for i in range(n)],
-                         "hotel": hotel})
+    return pd.DataFrame(
+        {
+            "arrival_date": dates,
+            "is_canceled": [i % 2 for i in range(n)],
+            "hotel": hotel,
+        }
+    )
 
 
 @pytest.fixture
@@ -88,6 +96,6 @@ def test_variants_are_dedup_primary_and_raw(make_raw):
     df = _flagged(make_raw)
     frames = variant_frames(df)
     assert set(frames) == {"dedup", "raw"}
-    assert len(frames["raw"]) == len(df)                 # nothing deleted for the raw variant
-    assert not frames["dedup"].is_dup.any()              # first copies only
+    assert len(frames["raw"]) == len(df)  # nothing deleted for the raw variant
+    assert not frames["dedup"].is_dup.any()  # first copies only
     assert len(frames["dedup"]) == len(df) - int(df.is_dup.sum())

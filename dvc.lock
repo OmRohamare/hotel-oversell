@@ -9,12 +9,12 @@ stages:
       size: 16855599
     - path: src/data.py
       hash: md5
-      md5: 714d663392f0d0f48857d3a6b079d448
-      size: 6565
+      md5: 899ba2ec954a2beb71ae2b42c7ee6f90
+      size: 6908
     - path: src/features.py
       hash: md5
-      md5: db09387fee55d49c56ce41bb8f10513b
-      size: 3380
+      md5: 4dced5cc327e8bc4ee7250cc0dba4b7a
+      size: 3757
     - path: src/logger.py
       hash: md5
       md5: 274fabb78980c08263ba4720498d8ade
@@ -25,8 +25,8 @@ stages:
       size: 2726
     - path: src/validate.py
       hash: md5
-      md5: 0a9307bd5b403804a0a482f5cad66357
-      size: 8554
+      md5: b2f77cca388e213057a2fc6bbec7be64
+      size: 9460
     params:
       params.yaml:
         cleaning:
@@ -39,39 +39,39 @@ stages:
     outs:
     - path: data/interim/clean.parquet
       hash: md5
-      md5: bdb372f8b5d156a4a0fa272a357431fc
-      size: 2281900
+      md5: 9e1f639aac50c5a45ef0bd6ed41add07
+      size: 2282209
     - path: reports/base_rates.csv
       hash: md5
-      md5: 1cb2af5e58dddc06b94bb4b5693344d4
-      size: 158
+      md5: d29ab3fc1c9a38bbd9393f8f89812bb2
+      size: 162
     - path: reports/brief_checks.csv
       hash: md5
-      md5: 01a898fa59926e9fba8b42d235979527
-      size: 312
+      md5: 11f7480da57ac1fae053a0cdf89e10ec
+      size: 318
     - path: reports/decisions_log.csv
       hash: md5
-      md5: 99a33ea9ce961dc33c8de915c6852579
-      size: 846
+      md5: ec3e48676af3dff730065d9ed549440b
+      size: 857
     - path: reports/dup_facts.csv
       hash: md5
-      md5: 2ff8fe777eb413812ed1daaecb44df53
-      size: 379
+      md5: 5acf4400f6ed1c86bd111c4cba9cdff5
+      size: 387
     - path: reports/duplicates_by_hotel.csv
       hash: md5
-      md5: 9213a0828c2be9390bc76304d22a125c
-      size: 160
+      md5: 8d6e633ac98e387f40b339f80e326cc4
+      size: 164
   split:
     cmd: python -m src.split
     deps:
     - path: data/interim/clean.parquet
       hash: md5
-      md5: bdb372f8b5d156a4a0fa272a357431fc
-      size: 2281900
+      md5: 9e1f639aac50c5a45ef0bd6ed41add07
+      size: 2282209
     - path: src/split.py
       hash: md5
-      md5: cfa4e992202f3bc1d7bde8960274c221
-      size: 4709
+      md5: d374b5409c92fa5fabe9063c49df86dd
+      size: 5126
     params:
       params.yaml:
         variants:
@@ -82,39 +82,39 @@ stages:
     outs:
     - path: data/processed/dedup
       hash: md5
-      md5: 369d95d348af1e328e4160fecc0633f5.dir
-      size: 2038816
+      md5: eaf6ca96762262e10baba770851bb551.dir
+      size: 2039371
       nfiles: 3
     - path: data/processed/raw
       hash: md5
-      md5: 43cfaae71208a8bf4a11df4bd97aa510.dir
-      size: 2288684
+      md5: 97853cfe6149bafe3fea3c2907865522.dir
+      size: 2289239
       nfiles: 3
     - path: reports/split_summary.csv
       hash: md5
-      md5: 675eba732114d542f2b59e8723bcefda
-      size: 637
+      md5: 7704ab0f69ca7789c70043c1791795b1
+      size: 646
   backtest:
     cmd: python -m src.backtest --stage-only
     deps:
     - path: data/processed/dedup
       hash: md5
-      md5: 369d95d348af1e328e4160fecc0633f5.dir
-      size: 2038816
+      md5: eaf6ca96762262e10baba770851bb551.dir
+      size: 2039371
       nfiles: 3
     - path: data/processed/raw
       hash: md5
-      md5: 43cfaae71208a8bf4a11df4bd97aa510.dir
-      size: 2288684
+      md5: 97853cfe6149bafe3fea3c2907865522.dir
+      size: 2289239
       nfiles: 3
     - path: src/backtest.py
       hash: md5
-      md5: 24a3f3d30832bbcc0f4264adc23abbd3
-      size: 12924
+      md5: bca42d8d471268dbd2b212ce00a3119b
+      size: 14270
     - path: src/features.py
       hash: md5
-      md5: db09387fee55d49c56ce41bb8f10513b
-      size: 3380
+      md5: 4dced5cc327e8bc4ee7250cc0dba4b7a
+      size: 3757
     params:
       params.yaml:
         features:
@@ -143,27 +143,100 @@ stages:
     outs:
     - path: models/dedup
       hash: md5
-      md5: d8d6e0d15eef0af29a3cc7236be5b257.dir
-      size: 23814434
+      md5: 521025efa6034f5d81ac4d5eb2c33e00.dir
+      size: 23809058
       nfiles: 4
     - path: models/raw
       hash: md5
-      md5: 6d71dc7d36a5cdd011e2b630a37f820d.dir
-      size: 28687538
+      md5: 2687064351cbbaacf36bcdb330c7c9e5.dir
+      size: 28690482
       nfiles: 4
     - path: reports/choose_diagnostics_dedup.csv
       hash: md5
-      md5: 0985a9b2929731b4350c1d31e596ea89
-      size: 428
+      md5: 9fddc23ada5ddf44a76dac3f977f4e48
+      size: 431
     - path: reports/choose_diagnostics_raw.csv
       hash: md5
-      md5: 38b68c2ca64ac42e86b2b69161314f27
-      size: 428
+      md5: 4845a7866135c31968c9e31881e56af4
+      size: 435
     - path: reports/drift_table_dedup.csv
       hash: md5
-      md5: bfc24cf66c27b6bf0551ddcb838c81ce
-      size: 182
+      md5: 74283dcefe227517220b3f4b95f0df3f
+      size: 186
     - path: reports/drift_table_raw.csv
       hash: md5
-      md5: 3a24bf86e6edcfbba8626d4f54ba0ff9
-      size: 179
+      md5: f534c8f2274a1dc41d399436c5984630
+      size: 183
+  freeze_buffer:
+    cmd: python -m src.freeze_buffer
+    deps:
+    - path: data/processed/dedup/choose.parquet
+      hash: md5
+      md5: 6b6799088ba88dc5fd425e7ac381878a
+      size: 539716
+    - path: data/processed/raw/choose.parquet
+      hash: md5
+      md5: 137b488bbe67d2d3bdb938cac106d0e1
+      size: 599537
+    - path: models/dedup
+      hash: md5
+      md5: 521025efa6034f5d81ac4d5eb2c33e00.dir
+      size: 23809058
+      nfiles: 4
+    - path: models/raw
+      hash: md5
+      md5: 2687064351cbbaacf36bcdb330c7c9e5.dir
+      size: 28690482
+      nfiles: 4
+    - path: src/costs.py
+      hash: md5
+      md5: abce813420828e674e7a9a23b376747d
+      size: 6145
+    - path: src/freeze_buffer.py
+      hash: md5
+      md5: 3c89b4179d9d4185577971c2d0a276a8
+      size: 6788
+    - path: src/tune.py
+      hash: md5
+      md5: d6662546313d26ff1097c6ca5cfb3d3e
+      size: 2530
+    params:
+      params.yaml:
+        buffer_grid:
+          constant_max: 25
+          spread_max: 6.0
+          spread_step: 0.25
+        variants:
+          primary: dedup
+          list:
+          - dedup
+          - raw
+    outs:
+    - path: reports/buffer_sweep_dedup.png
+      hash: md5
+      md5: b5d72f488df1dd42a172daeb54496333
+      size: 98448
+    - path: reports/buffer_sweep_raw.png
+      hash: md5
+      md5: a0a80b555b69fabc91e4f6aed41b15b4
+      size: 99848
+    - path: reports/choose_table_dedup.csv
+      hash: md5
+      md5: d6fb8e54562834b1f48ffff400f0a4a5
+      size: 311
+    - path: reports/choose_table_raw.csv
+      hash: md5
+      md5: 0adf620859611f5e264890126207d229
+      size: 311
+    - path: reports/frozen_buffers_dedup.json
+      hash: md5
+      md5: c24e10a7960127f4fefe2b36870f8a40
+      size: 602
+    - path: reports/frozen_buffers_raw.json
+      hash: md5
+      md5: 248ed0dd72bc0c2ab3980b3e4b42f024
+      size: 600
+    - path: reports/variant_comparison.csv
+      hash: md5
+      md5: 208a00ed517fe0cf9c71f5a4f80cabb3
+      size: 350

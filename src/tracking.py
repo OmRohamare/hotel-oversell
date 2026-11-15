@@ -9,14 +9,19 @@ Required environment variables (see .env.example):
     DAGSHUB_USER_TOKEN        your DagsHub access token
 (MLFLOW_TRACKING_USERNAME / MLFLOW_TRACKING_PASSWORD are used if already set.)
 """
-from src.logger import get_logger
-logger = get_logger(__name__)
+
 from __future__ import annotations
 
+from src.logger import get_logger
+
+logger = get_logger(__name__)
+
+
 import os
+from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Iterator, Mapping
+from typing import Any
 
 import mlflow
 from dotenv import load_dotenv
@@ -40,7 +45,9 @@ def setup_tracking(experiment_name: str = DEFAULT_EXPERIMENT) -> None:
     if token and not os.getenv("MLFLOW_TRACKING_PASSWORD"):
         os.environ["MLFLOW_TRACKING_PASSWORD"] = token
 
-    if not os.getenv("MLFLOW_TRACKING_USERNAME") or not os.getenv("MLFLOW_TRACKING_PASSWORD"):
+    if not os.getenv("MLFLOW_TRACKING_USERNAME") or not os.getenv(
+        "MLFLOW_TRACKING_PASSWORD"
+    ):
         raise RuntimeError(
             "DagsHub credentials missing. Set DAGSHUB_USERNAME and DAGSHUB_USER_TOKEN in .env."
         )

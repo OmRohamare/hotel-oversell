@@ -11,3 +11,4 @@ dagshub
 python-dotenv
 pytest
 ruff
+matplotlib

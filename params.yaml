@@ -1,0 +1,46 @@
+# Starting values: tune only on the choose period, never on the proof period.
+seed: 42
+
+data:
+  source: dvc            # dvc = fetch via DVC/S3, local = read data/raw/hotels.csv
+  raw_path: data/raw/hotels.csv
+  expected_rows: 119390
+  expected_cols: 32
+
+cleaning:
+  adr_cap: 1000          # adr above this is capped (one 5,400 rate would dominate a night)
+
+variants:
+  primary: dedup         # deduplicated data is primary; raw is the sensitivity check
+  list: [dedup, raw]
+
+features:
+  min_frequency: 20      # one-hot categories rarer than this are grouped
+  pool_top:              # keep the N most common values (by TRAIN counts), pool the rest as "other"
+    country: 20
+    agent: 30
+    company: 10
+
+models:
+  segment_table:
+    shrink_m: 30         # a cell with 30 bookings counts half its own rate, half the hotel rate
+  logistic:
+    C: 0.5
+    max_iter: 1000
+  random_forest:
+    n_estimators: 300
+    min_samples_leaf: 20
+    max_features: sqrt
+    n_jobs: -1
+
+buffer_grid:
+  constant_max: 25       # constant buffer 0..25 rooms
+  spread_max: 6.0        # spread buffer z * spread, z in 0..6
+  spread_step: 0.25
+
+bootstrap:
+  n_boot: 2000           # resamples of nights for the savings range (primary variant)
+
+mlflow:
+  enabled: false         # true logs the primary proof run to DagsHub (needs .env credentials)
+  experiment: hotel-oversell

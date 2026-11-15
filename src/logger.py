@@ -18,15 +18,17 @@ Conventions:
 - ERROR   failed stages (use logger.exception(...) inside except blocks)
 Do not log raw guest records or any credentials.
 """
+
 from __future__ import annotations
 
+import functools
 import logging
 import os
 import re
 import sys
+import time
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
-from typing import Optional
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 LOG_DIR = PROJECT_ROOT / "logs"
@@ -39,8 +41,12 @@ ROOT_LOGGER_NAME = "hotel_oversell"
 
 _REDACTIONS = [
     # key=value or key: value for common secret names
-    (re.compile(r"(?i)\b(token|secret|password|passwd|api[_-]?key|access[_-]?key)\b(\s*[=:]\s*)\S+"),
-     r"\1\2***REDACTED***"),
+    (
+        re.compile(
+            r"(?i)\b(token|secret|password|passwd|api[_-]?key|access[_-]?key)\b(\s*[=:]\s*)\S+"
+        ),
+        r"\1\2***REDACTED***",
+    ),
     # AWS access key ids
     (re.compile(r"\b(AKIA|ASIA)[A-Z0-9]{16}\b"), "***REDACTED***"),
 ]
@@ -52,7 +58,7 @@ class RedactSecretsFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
         try:
             message = record.getMessage()
-        except Exception:
+        except (TypeError, ValueError, RecursionError):
             return True
         redacted = message
         for pattern, replacement in _REDACTIONS:
@@ -101,7 +107,7 @@ def _configure() -> None:
     _configured = True
 
 
-def get_logger(name: Optional[str] = None) -> logging.Logger:
+def get_logger(name: str | None = None) -> logging.Logger:
     """Return a logger that uses the shared configuration.
 
     Pass __name__ from the calling module. Names such as "src.validate" are
@@ -119,7 +125,7 @@ def log_dataframe_summary(
     logger: logging.Logger,
     df,
     label: str,
-    date_col: Optional[str] = None,
+    date_col: str | None = None,
 ) -> None:
     """Log row/column counts and, if given, the date range of a DataFrame.
 
@@ -132,9 +138,64 @@ def log_dataframe_summary(
 
             dates = pd.to_datetime(df[date_col], errors="coerce")
             if dates.notna().any():
-                logger.info("%s: %s range %s to %s", label, date_col,
-                            dates.min().date(), dates.max().date())
+                logger.info(
+                    "%s: %s range %s to %s",
+                    label,
+                    date_col,
+                    dates.min().date(),
+                    dates.max().date(),
+                )
             else:
                 logger.warning("%s: no valid dates found in %s", label, date_col)
-        except Exception:
-            logger.warning("%s: could not compute date range for %s", label, date_col)
+        except (TypeError, ValueError, OverflowError):
+            logger.warning(
+                "%s: could not compute date range for %s",
+                label,
+                date_col,
+            )
+
+
+def log_stage(name: str):
+    """Decorator for a pipeline stage's main(): logs start, duration and failures.
+
+    On an exception it logs the full traceback at ERROR level and re-raises the
+    original exception, so callers and tests still see the real error type.
+    """
+
+    def decorator(fn):
+        @functools.wraps(fn)
+        def wrapper(*args, **kwargs):
+            stage_logger = get_logger(fn.__module__)
+            start = time.perf_counter()
+            stage_logger.info("Stage '%s' started", name)
+            try:
+                result = fn(*args, **kwargs)
+            except KeyboardInterrupt:
+                stage_logger.warning("Stage '%s' interrupted by user", name)
+                raise
+            except Exception:
+                stage_logger.exception(
+                    "Stage '%s' FAILED after %.1fs",
+                    name,
+                    time.perf_counter() - start,
+                )
+                raise
+
+            stage_logger.info(
+                "Stage '%s' finished in %.1fs",
+                name,
+                time.perf_counter() - start,
+            )
+            return result
+
+        return wrapper
+
+    return decorator
+
+
+def run_cli(main) -> None:
+    """Run a stage from the command line: exit code 1 on failure (already logged)."""
+    try:
+        main()
+    except Exception:  # noqa: BLE001
+        sys.exit(1)

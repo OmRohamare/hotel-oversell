@@ -1,0 +1,8 @@
+,value
+"cancel rate, repeats only",0.6313371257110708
+"cancel rate, first copies",0.27489816467572886
+share of Non Refund rows that are repeats,0.9288407486117776
+"share Non Refund, raw",0.1221794120110562
+"share Non Refund, deduplicated",0.011876973774543458
+"cancel rate among Non Refund, raw",0.9936244601357374
+"cancel rate among Non Refund, deduplicated",0.9470134874759152

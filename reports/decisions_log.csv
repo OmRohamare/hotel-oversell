@@ -1,0 +1,11 @@
+decision,rows_touched,why
+nights = weekend + week nights,119390,contract.py needs a 'nights' column
+adr < 0 set to 0,1,a negative nightly rate is not a price
+"adr > 1,000 capped",1,one extreme rate would dominate a night's average stay value
+children missing -> 0,4,blank child count; adults are listed separately
+agent missing -> 'none',16340,"missing is a category, not an error"
+company missing -> 'none',112593,"missing is a category, not an error"
+country missing -> 'none',488,"missing is a category, not an error"
+nights == 0 kept (flagged only),715,"they carry stay value 0, so an empty room from one costs nothing in the client's rule"
+"is_dup flagged, nothing dropped at load",31994,whether repeats are real bookings is a modelling decision (the two variants)
+rows dropped at load,0,none; the client scores every booking due that night

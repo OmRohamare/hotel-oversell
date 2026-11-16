@@ -1,791 +1,771 @@
-# **Hotel Oversell Decision System (hotel-oversell-main)** 
+# Hotel Oversell Buffer
 
-## **Overview** 
+A reproducible pipeline that sets an oversell buffer for each hotel on each arrival night. A cost rule from the client scores every method.
 
-The Hotel Oversell Decision System calculates the number of rooms ( ) that a hotel can sell above physical capacity for each arrival night. 
+> **Scope of this document.** This README comes from the source code in the ZIP file and from `hotels.csv`. The ZIP contains no notebook, no API, no license file and no slide deck. Where the code does not give an answer, this document says: "Purpose could not be determined from source code."
 
-### **Business Problem** 
+---
 
-Hotels lose revenue when guests cancel bookings and rooms stay empty. If a hotel sells too many extra rooms, guests arrive at a full hotel. The hotel must send ("walk") these excess guests to another hotel. Walking a guest costs per guest. An empty room costs the average booked stay value ( ) for that arrival night. 
+## Overview
 
-This software solves the revenue optimization problem for two properties in Portugal: 
+### Business problem
 
-1. **Resort Hotel ( )** : Located in the Algarve region ( bookings). 
+Some guests cancel their booking. A cancelled booking leaves a room empty. A hotel can sell extra rooms to cover these cancellations. This practice is called *overselling*.
 
-2. **City Hotel ( )** : Located in Lisbon ( bookings). 
+Overselling has two risks:
 
-For each arrival night and hotel, the system predicts expected cancellations and subtracts a safety buffer: 
+- **Empty room.** More guests cancel than the hotel expected. The room stays empty. The cost is the average stay value of that night (`adr` x `nights`).
+- **Walked guest.** Fewer guests cancel than the hotel expected. The hotel sends a guest to another hotel. The cost is EUR 300 for each walked guest.
 
+The client also sets a limit. A policy is acceptable only if it walks 10 guests or fewer for each 1,000 arrivals.
 
+### Source of the brief
 
-The system enforces a strict service guardrail: the hotel must not walk more than guests per arrivals ( ). Any policy that exceeds this limit fails validation, regardless of euro savings. 
+The Build 2 announcement deck sets the task. The client is a two-hotel group in Portugal: a city hotel in Lisbon and a resort in the Algarve. The deck gives the client request in this form: for each arrival night at each hotel, say how many rooms beyond capacity the hotel can keep selling. The hotel must not walk more than one guest in a hundred.
 
-## **Features** 
+The deck says the client and its brief are fictional. It says the bookings are the open Hotel Booking Demand datasets (Antonio, de Almeida and Nunes, 2019), under CC BY 4.0.
 
-- **Data Contract Validation** : Enforces strict column timing rules (contract.py, src/validate.py) to stop target leakage from post-booking variables (reservation_status, reservation_status_date, assigned_room_type). 
+The deck names two commands for this repository:
 
-- **Temporal Data Splitting** : Separates bookings by arrival date into three chronological periods (src/split.py): 
+- `python src/backtest.py` (proof-period table of all methods)
+- `python src/nightly.py --from 2017-08-18 --nights 14` (table for the next 14 nights)
 
-   - **Train** : Prior to 2016-07-01 (before July 2016). 
+### What this project does
 
-   - **Choose** : 2016-07-01 to 2016-12-31 (July to December 2016). 
+This project predicts the cancellation probability of each booking. It adds the probabilities for each hotel and arrival night. It then subtracts a *buffer* to get the number of rooms to oversell:
 
-   - **Prove** : 2017-01-01 to 2017-08-31 (January to August 2017). 
+```
+rooms to oversell = max(0, floor(expected cancellations - buffer))
+```
 
-- **Dual-Track Deduplication** : Evaluates pipelines on both raw data (raw) and deduplicated data (dedup) to measure the impact of duplicate PMS records. 
+The code limits this number to the number of bookings for that night. A negative buffer sells more rooms than the expected cancellations.
 
-- **Multi-Method Benchmarking** : Evaluates baseline rules, lookup tables, Logistic Regression, LightGBM, and XGBoost models (src/backtest.py, src/tune.py). 
+The project compares four methods. It chooses a buffer for each method. It then scores every method with the client rule in `contract.py`.
 
-- **Asymmetric Euro Cost Scoring** : Scores predictions in euros using empty-room opportunity cost and the walk penalty (src/costs.py). 
+---
 
-● **Guardrail Buffer Freezing** : Sweeps safety buffers on the Choose split, selects the minimum-cost buffer that satisfies , and freezes the value in JSON format (src/freeze_buffer.py). 
+## Features
 
-- **One-Command Nightly CLI** : Generates a 14-night oversell schedule from booking-time features (src/nightly.py). 
+- Four methods for cancellation probability: flat rule, segment table, logistic regression, random forest.
+- One cost rule for all methods (`contract.py`). The code does not change this rule.
+- A time-based split: train, choose, proof. The split is never random.
+- A check that no column from after the booking enters the model (`features.assert_no_leakage`).
+- Two data variants: `dedup` (primary) and `raw` (sensitivity). The pipeline runs both.
+- Two buffer families: `constant` and `spread`.
+- A bootstrap estimate of the saving against the flat rule.
+- A log of every look at the proof period (`docs/PROVE_RUNS.txt`).
+- Data version control with DVC and an S3 remote.
+- Optional MLflow tracking on DagsHub.
+- Secret redaction in log messages (`src/logger.py`).
+- CI with GitHub Actions: lint, test, and a pipeline run up to `freeze_buffer`.
 
-- **Reproducible MLOps Pipeline** : Tracks data, parameters, models, and reports with DVC (dvc.yaml, dvc.lock, params.yaml) and GitHub Actions CI (.github/workflows/ci.yaml). 
+---
 
-## **Architecture** 
+## Architecture
 
-### **Main Components** 
+### Main components
 
-1. **Contract Layer (contract.py)** : Defines the schema, feature availability timing, temporal split boundaries, and financial constants. 
-
-2. **Data & Validation Layer (src/data.py, src/validate.py, src/split.py)** : Loads raw CSV records, verifies data contracts, logs data cleaning decisions, and partitions datasets by arrival date. 
-
-3. **Feature Engineering Layer (src/features.py)** : Transforms booking-time attributes into numerical and categorical features without future data leakage. 
-
-4. **Modeling & Cost Engine (src/costs.py, src/tune.py, src/backtest.py)** : Trains cancellation probability estimators, aggregates booking probabilities into nightly expected cancellations, and computes euro costs and walk rates. 
-
-5. **Buffer Selection & Proof Layer (src/freeze_buffer.py, src/prove.py)** : Sweeps candidate buffers on the Choose split, freezes the optimal buffer, and executes a single evaluation on the Prove split. 
-
-6. **Production CLI Service (src/nightly.py)** : Loads frozen buffers and trained models to 
-
-output nightly oversell recommendations ( ) for upcoming arrival windows. 
-
-### **Data Flow** 
-
-[data/raw/hotels.csv] │ 
-
-▼ 
-
-[src/validate.py & src/data.py] ──► (Validates schema, logs duplicates to reports/dup_facts.csv) │ 
-
-▼ 
-
-[src/split.py] ───────────────────► (Splits by arrival date: Train < Jul 2016 | Choose H2 2016 | Prove 2017) │ ▼ [src/features.py] ────────────────► (Extracts booking-time features; blocks post-booking leakage) │ ├──► [src/tune.py & src/backtest.py] ──► (Trains models on Train; evaluates methods on Choose) │ ▼ [src/freeze_buffer.py] ───────────► (Sweeps buffers on Choose; writes reports/frozen_buffers_*.json) │ ├──► [src/prove.py] ───────────────────► (Runs single evaluation on Prove split; writes docs/PROVE_RUNS.txt) │ ▼ [src/nightly.py] ─────────────────► (Generates 14-night oversell table for hotel revenue managers) 
-
-### **Services and Modules** 
-
-This repository operates as a batch CLI application and DVC pipeline. It does not expose an HTTP server or web dashboard. All operations run through modular Python CLI entry points in src/. 
-
-## **Repository Structure** 
-
-### **Repository Tree** 
-
-hotel-oversell-main/ ├── .dvc/ │ ├── .gitignore │ └── config ├── .github/ │ └── workflows/ │ └── ci.yaml ├── artifacts/ │ └── .gitkeep ├── data/ │ ├── interim/ 
-
-│ │ └── .gitkeep │ ├── processed/ │ │ └── .gitkeep │ └── raw/ │ ├── .gitkeep │ └── hotels.csv.dvc ├── docs/ │ ├── DATA_DICTIONARY.md │ ├── MODEL_CARD.md │ ├── PROVE_RUNS.txt │ └── RUNBOOK.md ├── logs/ │ └── .gitkeep ├── models/ │ ├── .gitignore │ └── .gitkeep ├── reports/ │ ├── .gitkeep │ ├── base_rates.csv │ ├── brief_checks.csv │ ├── buffer_sweep_dedup.png │ ├── buffer_sweep_raw.png │ ├── choose_diagnostics_dedup.csv │ ├── choose_diagnostics_raw.csv │ ├── choose_table_dedup.csv │ ├── choose_table_raw.csv │ ├── decisions_log.csv │ ├── drift_table_dedup.csv │ ├── drift_table_raw.csv │ ├── dup_facts.csv │ ├── duplicates_by_hotel.csv │ ├── frozen_buffers_dedup.json │ ├── frozen_buffers_raw.json │ ├── split_summary.csv │ └── variant_comparison.csv ├── src/ │ ├── __init__.py │ ├── backtest.py │ ├── costs.py │ ├── data.py │ ├── features.py │ ├── freeze_buffer.py │ ├── logger.py 
-
-│ ├── nightly.py │ ├── params.py │ ├── prove.py │ ├── split.py │ ├── tracking.py │ ├── tune.py │ └── validate.py ├── tests/ │ ├── __init__.py │ ├── conftest.py │ ├── test_costs.py │ ├── test_features.py │ ├── test_pipeline.py │ ├── test_split.py │ └── test_validate.py ├── .dvcignore ├── .env.example ├── .gitignore ├── README.md ├── contract.py ├── dvc.lock ├── dvc.yaml ├── params.yaml ├── requirements.lock.txt └── requirements.txt 
-
-### **Detailed File-by-File Explanation** 
-
-#### **Root Directory** 
-
-- **contract.py** 
-
-   - **Purpose** : Defines the immutable data schema, column timing classifications (booking-time vs. post-booking leakage), split date boundaries, and business cost constants ( walk cost, walks per arrivals limit). 
-
-   - **Key Functions or Classes** : Schema constants, BOOKING_TIME_COLS, LEAKAGE_COLS, TARGET_COL, cost/guardrail constants. 
-
-   - **Inputs** : None. 
-
-   - **Outputs** : Imported constants across src/ and tests/. 
-
-   - **Dependencies** : Python standard library (typing, dataclasses). 
-
-- **params.yaml** 
-
-   - **Purpose** : Stores central configuration parameters for data paths, temporal split dates, 
-
-model hyperparameters, buffer sweep ranges, and cost thresholds. 
-
-   - **Key Functions or Classes** : YAML configuration blocks (data, split, costs, models, buffer_sweep). 
-
-   - **Inputs** : Read by src/params.py and DVC stages. 
-
-   - **Outputs** : Runtime configuration dictionary. 
-
-   - **Dependencies** : None. 
-
-- **dvc.yaml & dvc.lock** 
-
-   - **Purpose** : Defines the Data Version Control (DVC) pipeline stages, dependencies, commands, and locked MD5 hashes of data and report artifacts. 
-
-   - **Key Functions or Classes** : Pipeline stage definitions (validate, split, backtest, freeze_buffer, prove). 
-
-   - **Inputs** : data/raw/hotels.csv, params.yaml, src/*.py. 
-
-   - **Outputs** : Tracked artifacts in data/, models/, and reports/. 
-
-   - **Dependencies** : dvc. 
-
-- **requirements.txt & requirements.lock.txt** 
-
-   - **Purpose** : Lists direct Python package dependencies (requirements.txt) and exact pinned environment versions (requirements.lock.txt). 
-
-   - **Key Functions or Classes** : Package specifications. 
-
-   - **Inputs** : Used by pip install. 
-
-   - **Outputs** : Configured Python virtual environment. 
-
-   - **Dependencies** : pip. 
-
-#### **/src Directory** 
-
-- **src/__init__.py** 
-
-   - **Purpose** : Marks src as a Python package. 
-
-- **src/params.py** 
-
-   - **Purpose** : Loads and validates configuration settings from params.yaml. 
-
-   - **Key Functions or Classes** : load_params(). 
-
-   - **Inputs** : params.yaml. 
-
-   - **Outputs** : Python dictionary / configuration object. 
-
-   - **Dependencies** : pyyaml, pathlib. 
-
-- **src/logger.py** 
-
-   - **Purpose** : Configures standardized console and file logging across all pipeline modules. 
-
-   - **Key Functions or Classes** : get_logger(). 
-
-   - **Inputs** : Module name, log level, logs/ directory path. 
-
-   - **Outputs** : Formatted log streams and log files in logs/. 
-
-   - **Dependencies** : logging, sys, pathlib. 
-
-- **src/tracking.py** 
-
-   - **Purpose** : Logs experiment metrics, parameters, decisions, and run metadata to local CSV/JSON artifacts. 
-
-   - **Key Functions or Classes** : Experiment and decision logging helper functions. 
-
-   - **Inputs** : Model metrics, parameter dictionaries, data cleaning counts. 
-
-   - **Outputs** : reports/decisions_log.csv and run tracking metadata. 
-
-   - **Dependencies** : json, csv, pandas, src.logger. 
-
-- **src/data.py** 
-
-   - **Purpose** : Reads raw hotel booking records (hotels.csv), constructs arrival dates from year/month/day columns, handles NULL string literals, and executes optional deduplication (raw vs dedup variants). 
-
-   - **Key Functions or Classes** : Data loading, date parsing, deduplication routines. 
-
-   - **Inputs** : data/raw/hotels.csv, params.yaml. 
-
-   - **Outputs** : Cleaned pandas DataFrame, reports/dup_facts.csv, reports/duplicates_by_hotel.csv, reports/brief_checks.csv. 
-
-   - **Dependencies** : pandas, numpy, contract, src.logger. 
-
-- **src/validate.py** 
-
-   - **Purpose** : Enforces the data contract on input DataFrames. Verifies required columns, checks value ranges, blocks leakage columns, and validates brief statistics against actual dataset counts. 
-
-   - **Key Functions or Classes** : Schema validation functions, leakage assertions, brief verification checks. 
-
-   - **Inputs** : Raw or processed DataFrame, contract.py. 
-
-   - **Outputs** : Validated DataFrame, validation reports (reports/brief_checks.csv, reports/decisions_log.csv). 
-
-   - **Dependencies** : pandas, numpy, contract, src.logger. 
-
-- **src/split.py** 
-
-   - **Purpose** : Splits the dataset chronologically by arrival date into Train ( 
-
-
-
-
-
-      - ), Choose ( to ), and Prove ( 
-
-      - ). 
-
-   - **Key Functions or Classes** : Temporal split functions and split summary generators. 
-
-   - **Inputs** : Validated DataFrame, split date thresholds from params.yaml / contract.py. 
-
-   - **Outputs** : Partitioned DataFrames, reports/split_summary.csv, reports/base_rates.csv, reports/drift_table_raw.csv, reports/drift_table_dedup.csv. 
-
-   - **Dependencies** : pandas, contract, src.params, src.logger. 
-
-- **src/features.py** 
-
-   - **Purpose** : Builds feature matrices using only columns known at the time of booking. Strips post-booking columns (assigned_room_type, reservation_status, reservation_status_date, booking_changes, days_in_waiting_list if flagged) to prevent target leakage. 
-
-   - **Key Functions or Classes** : Feature preprocessing pipeline, categorical encoders, booking-time feature selectors. 
-
-   - **Inputs** : Split DataFrames (Train, Choose, Prove). 
-
-   - **Outputs** : Feature matrix and target vector (is_canceled). 
-
-   - **Dependencies** : pandas, numpy, scikit-learn, contract. 
-
-- **src/costs.py** 
-
-   - **Purpose** : Calculates nightly oversell quantities ( ), empty rooms, walked guests, walk rate per arrivals, and total euro costs. 
-
-   - **Key Functions or Classes** : Nightly aggregation functions, euro cost calculator, guardrail check ( walks per arrivals). 
-
-   - **Inputs** : Nightly actual cancellations, predicted cancellations, buffer value, nightly average stay value ( ), walk penalty ( ). 
-
-   - **Outputs** : Nightly and aggregate cost metrics, walk rates, guardrail pass/fail booleans. 
-
-   - **Dependencies** : numpy, pandas, contract. 
-
-- **src/tune.py** 
-
-   - **Purpose** : Trains and tunes cancellation prediction models on the Train split using time-aware cross-validation and hyperparameter search. 
-
-   - **Key Functions or Classes** : Model training and hyperparameter tuning routines. 
-
-   - **Inputs** : Train feature matrix and target vector, params.yaml. 
-
-   - **Outputs** : Serialized model artifacts in models/. 
-
-   - **Dependencies** : scikit-learn, lightgbm, xgboost, joblib, src.features, src.params. 
-
-- **src/backtest.py** 
-
-   - **Purpose** : Evaluates all candidate forecasting methods (flat baseline rule, empirical lookup table, Logistic Regression, LightGBM, XGBoost) on the Choose split across both raw and dedup tracks. 
-
-   - **Key Functions or Classes** : Backtest runner, method comparison aggregator. 
-
-   - **Inputs** : Train and Choose splits, params.yaml. 
-
-   - **Outputs** : reports/choose_table_raw.csv, reports/choose_table_dedup.csv, reports/choose_diagnostics_raw.csv, reports/choose_diagnostics_dedup.csv, reports/variant_comparison.csv, trained models in models/. 
-
-   - **Dependencies** : pandas, numpy, scikit-learn, lightgbm, src.costs, src.features, src.split. 
-
-- **src/freeze_buffer.py** 
-
-   - **Purpose** : Sweeps candidate safety buffer values on the Choose split, plots cost vs. walk-rate curves, selects the optimal buffer per hotel and method that obeys the walk limit ( per ), and freezes the selected buffers to JSON. 
-
-   - **Key Functions or Classes** : Buffer sweep engine, plot generator, JSON serializer. 
-
-   - **Inputs** : Choose predictions from src/backtest.py, params.yaml. 
-
-   - **Outputs** : reports/frozen_buffers_raw.json, reports/frozen_buffers_dedup.json, reports/buffer_sweep_raw.png, reports/buffer_sweep_dedup.png. 
-
-   - **Dependencies** : pandas, numpy, matplotlib, json, src.costs. 
-
-- **src/prove.py** 
-
-   - **Purpose** : Executes the one-time out-of-sample evaluation on the 2017 Prove split using the frozen models and frozen buffers from the Choose period. 
-
-   - **Key Functions or Classes** : Proof evaluation runner, proof audit logger. 
-
-   - **Inputs** : Prove split data, models/, reports/frozen_buffers_*.json. 
-
-   - **Outputs** : Proof performance tables and docs/PROVE_RUNS.txt. 
-
-   - **Dependencies** : pandas, numpy, json, joblib, src.costs, src.features. 
-
-- **src/nightly.py** 
-
-   - **Purpose** : Production CLI tool for hotel revenue managers. Outputs a 14-night table of recommended oversell room counts ( ) per hotel starting from a specified arrival date. 
-
-   - **Key Functions or Classes** : CLI argument parser (--from, --nights), nightly inference and aggregation runner. 
-
-   - **Inputs** : Booking records known prior to the forecast window, trained models (models/), frozen buffers (reports/frozen_buffers_*.json). 
-
-   - **Outputs** : Formatted 14-night oversell recommendation table (console output and/or CSV artifact). 
-
-   - **Dependencies** : argparse, pandas, joblib, json, src.features, src.costs. 
-
-#### **/tests Directory** 
-
-- **tests/conftest.py** : Provides shared pytest fixtures, synthetic booking DataFrames, and temporary test directories. 
-
-- **tests/test_validate.py** : Tests schema validation, NULL handling, and post-booking leakage rejection. 
-
-- **tests/test_split.py** : Verifies chronological split boundaries and asserts zero temporal overlap between Train, Choose, and Prove. 
-
-- **tests/test_features.py** : Verifies that feature engineering excludes forbidden post-booking columns (assigned_room_type, reservation_status, reservation_status_date). 
-
-- **tests/test_costs.py** : Verifies euro cost calculations, empty room valuations, walk penalties, and the ceiling. 
-
-
-
-- **tests/test_pipeline.py** : Runs end-to-end integration tests across validation, splitting, backtesting, buffer freezing, and nightly inference. 
-
-#### **/docs Directory** 
-
-- **docs/DATA_DICTIONARY.md** : Documents all 32 dataset columns, data types, PMS source tables (BO, BL, TR, CP, ML, DC, NT, MS), and booking-time availability status. 
-
-- **docs/MODEL_CARD.md** : Documents model architecture, intended use, training/choose/prove datasets, evaluation metrics, fairness/leakage constraints, and operational caveats. 
-
-- **docs/PROVE_RUNS.txt** : Immutable audit log of executions on the 2017 Prove dataset. 
-
-- **docs/RUNBOOK.md** : Step-by-step operational guide for running the pipeline, executing nightly forecasts, and troubleshooting errors. 
-
-### **Important Files Summary Table** 
-
-|**File Name**|**Purpose**|**Key Components**|**Dependencies**|
-|---|---|---|---|
-
-
-
-|contract.py|Defines data<br>contract, leakage<br>rules, and cost<br>constants|BOOKING_TIME_C<br>OLS,<br>LEAKAGE_COLS,<br>walk cost/ceiling<br>constants|Python stdlib|
-|---|---|---|---|
-|params.yaml|Central<br>configuration file|Split dates, model<br>hyperparameters,<br>cost & buffer sweep<br>settings|pyyaml, dvc|
-|dvc.yaml|Defines<br>reproducible<br>MLOps pipeline<br>stages|Stages: validate,<br>split, backtest,<br>freeze_buffer,<br>prove|dvc|
-|src/data.py|Loads raw CSV data<br>and handles<br>deduplication|Raw loader, arrival<br>date builder,<br>deduplication<br>tracker|pandas, numpy,<br>contract|
-|src/validate.py|Validates schema<br>and checks brief<br>claims|Contract validator,<br>leakage blocker,<br>brief facts verifier|pandas, contract,<br>src.logger|
-|src/split.py|Performs<br>chronological<br>Train/Choose/Prove<br>splitting|Date-based splitter,<br>drift and base-rate<br>calculators|pandas, contract,<br>src.params|
-|src/features.py|Extracts<br>booking-time<br>features without<br>leakage|Feature<br>transformer,<br>leakage column<br>filter, encoders|pandas, scikit-learn,<br>contract|
-|src/costs.py|Computes euro loss<br>and walk-rate<br>guardrails|Nightly<br>scorer,<br>walk rate calculator,<br>guardrail filter|numpy, pandas,<br>contract|
-|src/tune.py|Tunes ML models<br>on the Train split|Time-series<br>cross-validation<br>and|scikit-learn,<br>lightgbm, xgboost|
-
-
-
-|||hyperparameter<br>tuner||
-|---|---|---|---|
-|src/backtest.py|Benchmarks<br>candidate methods<br>on the Choose split|Baseline rules,<br>lookup tables, ML<br>classifiers,<br>evaluator|pandas, scikit-learn,<br>lightgbm, src.costs|
-|src/freeze_buffer.py|Sweeps and freezes<br>safety buffers on<br>Choose split|Buffer grid sweep,<br>guardrail<br>enforcement, plot &<br>JSON writer|pandas, matplotlib,<br>json, src.costs|
-|src/prove.py|Evaluates frozen<br>models and buffers<br>on Prove split|Single-shot proof<br>evaluator,<br>PROVE_RUNS.txt<br>logger|pandas, joblib, json,<br>src.costs|
-|src/nightly.py|CLI entry point for<br>14-night oversell<br>schedule|--from and --nights<br>CLI parser, nightly<br>generator|argparse, pandas,<br>joblib, src.costs|
-|src/tracking.py|Logs cleaning<br>decisions and<br>experiment runs|Decision log writer,<br>metric tracker|pandas, csv, json|
-|src/logger.py|Standardized<br>logging utility|get_logger()|logging, pathlib|
-|src/params.py|YAML parameter<br>loader|load_params()|pyyaml, pathlib|
-|tests/test_costs.py|Unit tests for euro<br>cost and walk<br>ceiling formulas|Cost formula<br>assertions,<br>guardrail boundary<br>tests|pytest, src.costs|
-|tests/test_features.<br>py|Unit tests for<br>leakage prevention|Column audit and<br>leakage exclusion<br>tests|pytest, src.features,<br>contract|
-|tests/test_pipeline.<br>py|End-to-end<br>integration test|Full pipeline<br>execution test on|pytest, src.*|
-
-
-
-suite 
-
-synthetic fixtures 
-
-## **Prerequisites** 
-
-Install the following software before you set up the project: 
-
-- **Operating System** : Linux, macOS, or Windows (WSL2 recommended). 
-
-- **Python** : Version 3.10 or 3.11. 
-
-- **Git** : Version 2.30 or higher. 
-
-- **DVC (Data Version Control)** : Version 3.x (optional, for data and pipeline reproduction). 
-
-## **Installation** 
-
-Follow these steps to install the project and its dependencies: 
-
-1. Clone the repository to your local machine: git clone <repository-url> cd hotel-oversell-main 
-
-2. Create and activate a Python virtual environment: python3 -m venv .venv source .venv/bin/activate 
-
-3. Upgrade pip and install the locked dependencies: pip install --upgrade pip pip install -r requirements.lock.txt 
-
-_(Note: If your platform does not match the locked OS wheels, run pip install -r requirements.txt.)_ 
-
-4. Place the raw dataset (hotels.csv) in the data/raw/ directory, or pull it with DVC: cp /path/to/hotels.csv data/raw/hotels.csv # Or, if a DVC remote is configured: dvc pull 
-
-## **Configuration** 
-
-1. Copy the example environment file: cp .env.example .env 
-
-2. Review params.yaml to verify or adjust pipeline parameters: 
-
-   - **Data paths** : Input (data/raw/hotels.csv) and output report directories (reports/, models/). 
-
-   - **Temporal split dates** : 
-
-      - train_end: 2016-06-30 
-
-      - choose_start: 2016-07-01 
-
-      - choose_end: 2016-12-31 
-
-      - prove_start: 2017-01-01 
-
-   - **Business rules** : 
-
-      - walk_cost_eur: 300.0 
-
-      - max_walks_per_1000: 10.0 
-
-   - **Buffer sweep grid** : Candidate safety buffer values tested on the Choose split. 
-
-## **Usage** 
-
-Run all commands from the root directory (hotel-oversell-main/). 
-
-### **1. Validate Data and Check Brief Claims** 
-
-python -m src.validate 
-
-### **2. Split the Dataset and Generate Drift Diagnostics** 
-
-python -m src.split 
-
-### **3. Run the Backtest on the Choose Period (POC)** 
-
-python src/backtest.py 
-
-### **4. Sweep and Freeze the Safety Buffer** 
-
-python -m src.freeze_buffer 
-
-### **5. Run the One-Time Proof Evaluation** 
-
-python -m src.prove 
-
-### **6. Generate the 14-Night Oversell Schedule (MVP)** 
-
-python src/nightly.py --from 2017-08-18 --nights 14 
-
-### **7. Run the Automated Test Suite** 
-
-pytest -v 
-
-## **Example Workflow** 
-
-To execute the complete end-to-end MLOps workflow from raw data validation to nightly production inference: 
-
-# Step 1: Run unit and contract tests pytest 
-
-# Step 2: Reproduce the full DVC pipeline (validate -> split -> backtest -> freeze_buffer -> prove) 
-
-dvc repro 
-
-# Step 3: Inspect the method comparison and frozen buffers cat reports/variant_comparison.csv cat reports/frozen_buffers_raw.json cat reports/frozen_buffers_dedup.json 
-
-# Step 4: Run the production CLI for a 14-night arrival window python src/nightly.py --from 2017-08-18 --nights 14 
-
-## **Input Data** 
-
-### **Dataset Overview** 
-
-The project uses the open **Hotel Booking Demand Dataset** published by Nuno Antonio, Ana de Almeida, and Luis Nunes ( _Data in Brief_ , 22, 2019, pp. 41–49, CC BY 4.0). 
-
-- **File Location** : data/raw/hotels.csv (tracked via data/raw/hotels.csv.dvc). 
-
-- **Total Records** : booking rows across two hotels in Portugal: 
-
-   - **Resort Hotel ( , Algarve)** : rows. 
-
-   - **City Hotel ( , Lisbon)** : rows. 
-
-- **Arrival Date Range** : 2015-07-01 to 2017-08-31. 
-
-- **Columns** : columns ( original PMS variables plus the hotel identifier column). 
-
-### **Column Timing and Leakage Audit** 
-
-The PMS extracted variables from eight relational tables (BO Bookings, BL Bookings Change Log, TR Transactions, CP Customer Profiles, ML Meals, DC Distribution Channels, NT Nationalities, MS Market Segments). To prevent future information leakage, contract.py and src/features.py classify columns by when the hotel learns their value: 
-
-1. **Target Column** : 
-
-   - is_canceled ( if canceled, if arrived). 
-
-2. **Forbidden Post-Booking / Leakage Columns (Excluded from Features)** : 
-
-   - reservation_status: Contains final outcome (Canceled, Check-Out, No-Show). Directly leaks is_canceled. 
-
-   - reservation_status_date: Timestamp when the final status was recorded. 
-
-   - assigned_room_type: Assigned at check-in or during operations; differs from reserved_room_type much more frequently for non-canceled bookings than canceled bookings. 
-
-3. **Caution / Operational Drift Columns (Audited in src/validate.py & src/features.py)** : 
-
-   - booking_changes, days_in_waiting_list, country: The research paper notes that guests frequently modify booking attributes or provide nationality at check-in. In addition, exact duplicate rows exist in the raw extract (primarily from group/OTA batch 
-
-   - entries), which justifies the dual raw vs. dedup evaluation tracks. 
-
-4. **Booking-Time Columns (Allowed for src/nightly.py)** : 
-
-   - hotel, lead_time, arrival_date_year, arrival_date_month, arrival_date_week_number, arrival_date_day_of_month, stays_in_weekend_nights, stays_in_week_nights, adults, children, babies, meal, market_segment, distribution_channel, is_repeated_guest, previous_cancellations, previous_bookings_not_canceled, reserved_room_type, deposit_type, agent, company, customer_type, adr, required_car_parking_spaces, total_of_special_requests. 
-
-## **Output Artifacts** 
-
-The pipeline writes structured outputs to reports/, models/, and docs/: 
-
-- **Data Audit & Split Reports** : 
-
-   - reports/brief_checks.csv: Verification of numbers stated in the client brief against raw data. 
-
-   - reports/decisions_log.csv: Audit log of every data cleaning and filtering rule, with row counts before and after. 
-
-   - reports/dup_facts.csv & reports/duplicates_by_hotel.csv: Quantification of duplicate booking rows across Resort Hotel and City Hotel. 
-
-   - reports/split_summary.csv: Booking counts, arrival night counts, and cancellation rates per split (Train, Choose, Prove). 
-
-   - reports/base_rates.csv: Historical cancellation base rates by hotel, channel, and deposit type. 
-
-   - reports/drift_table_raw.csv & reports/drift_table_dedup.csv: Feature and target distribution shift across temporal splits. 
-
-- **Model & Buffer Selection Reports** : 
-
-   - reports/choose_table_raw.csv & reports/choose_table_dedup.csv: Performance table of all candidate methods on the Choose period (euro cost, empty rooms, walks per arrivals). 
-
-   - reports/choose_diagnostics_raw.csv & reports/choose_diagnostics_dedup.csv: Detailed nightly diagnostics on the Choose split. 
-
-   - reports/buffer_sweep_raw.png & reports/buffer_sweep_dedup.png: Visual trade-off curves of euro cost vs. walked guests across buffer values. 
-
-   - reports/frozen_buffers_raw.json & reports/frozen_buffers_dedup.json: Locked buffer parameters selected on Choose for each hotel and method. 
-
-   - reports/variant_comparison.csv: Direct comparison between raw and dedup pipelines. 
-
-- **Proof & Model Artifacts** : 
-
-   - models/: Trained model binaries (raw and dedup subdirectories). 
-
-   - docs/PROVE_RUNS.txt: Single-run proof metrics on the 2017 Prove split. 
-
-## **Training / Inference Process** 
-
-### **1. Problem Formulation** 
-
-Instead of optimizing classification accuracy or ROC-AUC in isolation, the pipeline optimizes the nightly operational decision: 
-
-
-
-where: 
-
-- is the number of rooms to oversell at hotel on arrival night . 
-
-- is the expected number of cancellations on night  (sum of 
-
-- predicted cancellation probabilities across all bookings due to arrive on night ). 
-
-- . 
-
-- is the frozen safety buffer for hotel 
-
-### **2. Nightly Scoring Rule (Euro Cost & Guardrail)** 
-
-On arrival night  with actual cancellations and actual arrivals : 
-
-● **Unfilled Cancellations (Empty Rooms)** : 
-
-
-
-Each empty room costs the night's average booked stay value: 
-
-
-
-- **Walked Guests** : 
-
-
-
-Each walked guest costs . 
-
-● **Guardrail** : Across the evaluation period, total walks per actual arrivals must obey: 
-
-
-
-### **3. Three-Stage Temporal Discipline** 
-
-1. **Train (< 2016-07-01)** : Fit baseline rates, empirical lookup tables, Logistic Regression, LightGBM, and XGBoost classifiers. 
-
-2. **Choose (2016-07-01 to 2016-12-31)** : Predict for every night in the second half of 2016. Sweep buffer values (src/freeze_buffer.py). Filter out any pair that exceeds walks per arrivals. Select the method and buffer that minimize total euro cost, and save to reports/frozen_buffers_*.json. 
-
-3. **Prove (2017-01-01 to 2017-08-31)** : Apply the frozen model and frozen buffer once to the 2017 arrival nights (src/prove.py) to report honest out-of-sample euro savings and walk rates. 
-
-## **API Endpoints** 
-
-Not applicable. This repository provides a command-line interface (src/nightly.py) and batch pipeline scripts. In accordance with the project brief ("What to Drop: Building a dashboard or a web app, when the MVP is one command"), no REST API or web server is included. 
-
-## **Notebook Descriptions** 
-
-No .ipynb Jupyter Notebook files exist in the repository (hotel-oversell-main). All exploratory data checks, brief verifications, duplicate analyses, and model comparisons are implemented as deterministic, testable Python scripts in src/ (src/validate.py, src/split.py, src/backtest.py) that output auditable CSV tables to reports/. 
-
-## **Scripts Description** 
-
-- **python -m src.validate** : Executes contract checks on data/raw/hotels.csv, verifies claims from the client brief (reports/brief_checks.csv), and logs cleaning decisions (reports/decisions_log.csv). 
-
-- **python -m src.split** : Splits data into Train, Choose, and Prove sets by arrival date and outputs reports/split_summary.csv, reports/base_rates.csv, and drift tables. 
-
-- **python src/backtest.py** : Trains and evaluates all candidate methods on the Choose period and generates reports/choose_table_*.csv and reports/variant_comparison.csv. 
-
-- **python -m src.freeze_buffer** : Runs the safety buffer sweep on the Choose split, generates reports/buffer_sweep_*.png, and writes reports/frozen_buffers_*.json. 
-
-- **python -m src.prove** : Runs the locked evaluation on the 2017 Prove split and records results in docs/PROVE_RUNS.txt. 
-
-- **python src/nightly.py --from YYYY-MM-DD --nights N** : Runs the production MVP 
-
-command to output nightly oversell counts ( ) for each hotel for the next nights. 
-
-- **python -m src.tune** : Runs hyperparameter tuning on the Train split. 
-
-## **Dependencies** 
-
-Key packages defined in requirements.txt and requirements.lock.txt: 
-
-|**Package**|**Role in Project**|
-|---|---|
-|pandas|DataFrame manipulation, temporal splitting,<br>and nightly aggregation|
-|numpy|Vectorized array operations and cost/buffer<br>math|
-|scikit-learn|Preprocessing pipelines, Logistic<br>Regression, and evaluation metrics|
-|lightgbm|Gradient boosted decision trees for<br>cancellation probability estimation|
-|xgboost|Extreme gradient boosting classifier for<br>benchmark comparison|
-
-
-
-|matplotlib|Generation of buffer sweep trade-off plots<br>(buffer_sweep_*.png)|
-|---|---|
-|pyyaml|Parsing params.yaml configuration files|
-|joblib|Saving and loading trained model artifacts<br>in models/|
-|dvc|Data and pipeline version control (dvc.yaml,<br>dvc.lock)|
-|pytest|Unit and integration testing framework<br>(tests/)|
-|ruff / flake8|Code linting in CI workflow<br>(.github/workflows/ci.yaml)|
-
-
-
-## **Troubleshooting** 
-
-- **Error: FileNotFoundError: data/raw/hotels.csv** 
-
-   - **Cause** : The raw dataset file is tracked by DVC (hotels.csv.dvc) and is not stored directly in Git. 
-
-   - **Solution** : Copy hotels.csv into data/raw/hotels.csv or run dvc pull. 
-
-- **Error: ContractViolationError or Leakage Assertion Failure in src/validate.py / src/features.py** 
-
-   - **Cause** : Input data contains forbidden post-booking columns (reservation_status, reservation_status_date, assigned_room_type) in the feature list, or required columns are missing. 
-
-   - **Solution** : Inspect contract.py to ensure custom features only reference BOOKING_TIME_COLS. 
-
-- **Error: No valid buffer satisfies walk ceiling in src/freeze_buffer.py** 
-
-   - **Cause** : The candidate buffer range in params.yaml is too narrow to bring walked guests below per arrivals on the Choose split. 
-
-   - **Solution** : Increase the upper bound of the buffer sweep grid in params.yaml and re-run python -m src.freeze_buffer. 
-
-- **Error: FileNotFoundError: reports/frozen_buffers_*.json when running src/nightly.py or src/prove.py** 
-
-   - **Cause** : Buffers have not been frozen yet. 
-
-   - **Solution** : Run python src/backtest.py followed by python -m src.freeze_buffer before running prove.py or nightly.py. 
-
-## **Future Improvements** 
-
-1. **Full-Night Capacity & Dynamic Walk Cost Caveat** : As noted in the project problem statement and docs/MODEL_CARD.md, the dataset records booking-level arrivals and cancellations but does not provide exact daily physical room inventory or multi-night stay-over occupancy limits. Integrating live PMS inventory counts will allow the buffer to 
-
-   - condition on whether the hotel is near physical occupancy. 
-
-2. **Lead-Time Horizon Conditioning** : In src/nightly.py, bookings for an arrival date 
-
-   - continue to arrive and cancel between and . Filtering and re-calibrating cancellation probabilities by exact days-before-arrival ( ) using Bookings Change Log (BL) timestamps will improve multi-day horizon accuracy. 
-
-3. **Uncertainty Quantile Buffers** : Replace static additive hotel buffers ( ) with dynamic Poisson-binomial quantile thresholds computed directly from the nightly variance 
-
-
-
-4. **Automated Drift Retraining Trigger** : Connect reports/drift_table_*.csv metrics to an automated retraining alert when cancellation base rates shift across seasons (e.g., Algarve summer peak vs. winter low season). 
-
-## **License** 
-
-- **Dataset License** : The Hotel Booking Demand dataset (Antonio, de Almeida, and Nunes, 2019) is licensed under the **Creative Commons Attribution 4.0 International License (CC BY 4.0)** . 
-
-- **Source Code License** : Check the repository root for license terms. If no LICENSE file is present, standard copyright laws apply; contact the repository authors for commercial or open-source distribution permissions. 
-
-# **Comprehensive Project Assessment & MLOps Analysis Report** 
-
-## **1. Alignment Across Project Artifacts** 
-
-This assessment cross-references all four supplied artifacts: 
-
-1. **GitHub Repository (hotel-oversell-main.zip)** 
-
-2. **Problem Statement Presentation (C2_W06_D02_Build2_Announcement.pptx)** 
-
-3. **Research Paper (reasearch paperr.pdf — Antonio et al.,** **_Data in Brief_ 22, 2019, 41–49)** 
-
-4. **Raw Dataset (hotels.csv — rows, columns)** 
-
-### **Six Traps Audit (From Slide 12 of Problem Statement PPTX)** 
-
-|**Trap in Brief**|**How the Repository**<br>**Addresses It**|**Evidence in Code &**<br>**Reports**|
+| Component | Where | Role |
 |---|---|---|
-|**Trap 1**: Reporting accuracy<br>when the client pays in<br>euros.|Evaluates all methods in<br>euros (<br>vs.<br>walk<br>penalty) under the<br>ceiling.|src/costs.py,<br>reports/choose_table_raw.c<br>sv,<br>reports/choose_table_dedu<br>p.csv|
-|**Trap 2**: Splitting at random<br>when the client proves on<br>2017.|Enforces strict<br>chronological splitting by<br>arrival date (Train<br>, Choose<br>, Prove<br>).|src/split.py,<br>tests/test_split.py,<br>reports/split_summary.csv|
-|**Trap 3**: Using columns<br>written after the booking<br>was made.|Explicitly blocks<br>reservation_status,<br>reservation_status_date,<br>and assigned_room_type in<br>the data contract and<br>feature pipeline.|contract.py, src/features.py,<br>tests/test_features.py,<br>docs/DATA_DICTIONARY.m<br>d|
-|**Trap 4**: Picking the buffer<br>while looking at the proof<br>period.|Selects and freezes the<br>buffer strictly on the<br>Choose split (H2 2016),<br>writes it to<br>frozen_buffers_*.json, and<br>evaluates Prove (2017) only<br>once.|src/freeze_buffer.py,<br>src/prove.py,<br>reports/frozen_buffers_*.jso<br>n, docs/PROVE_RUNS.txt|
-|**Trap 5**: Counting savings<br>against selling nothing<br>extra.|Benchmarks ML models<br>against the client's flat<br>baseline rule and empirical<br>lookup tables rather than<br>zero-oversell alone.|src/backtest.py,<br>reports/choose_table_*.csv|
+| Client rule | `contract.py` | Defines the split dates, the cost of empty rooms and walks, and the walk limit |
+| Pipeline code | `src/` | Validates data, splits data, trains methods, chooses buffers, scores the proof period |
+| Pipeline definition | `dvc.yaml`, `dvc.lock` | Defines five stages and records their inputs and outputs |
+| Settings | `params.yaml` | Holds all model, grid and split settings |
+| Data store | `.dvc/config`, `data/raw/hotels.csv.dvc` | Points to the raw CSV in S3 |
+| Tracking | `src/tracking.py` | Sends proof results to MLflow on DagsHub |
+| Tests | `tests/` | Check each stage with synthetic data |
+| CI | `.github/workflows/ci.yaml` | Runs lint, tests and the pipeline |
 
+### Data flow
 
+```
+data/raw/hotels.csv  (DVC, S3)
+        |
+        v
+[1 validate]  --> data/interim/clean.parquet
+                  reports/brief_checks.csv, decisions_log.csv,
+                  duplicates_by_hotel.csv, base_rates.csv, dup_facts.csv
+        |
+        v
+[2 split]     --> data/processed/{dedup,raw}/{train,choose,proof}.parquet
+                  reports/split_summary.csv
+        |
+        v
+[3 backtest]  --> models/{dedup,raw}/*.joblib
+                  reports/choose_diagnostics_*.csv, drift_table_*.csv
+        |
+        v
+[4 freeze_buffer] --> reports/frozen_buffers_{dedup,raw}.json
+                      reports/choose_table_*.csv, variant_comparison.csv,
+                      reports/buffer_sweep_*.png
+        |
+        v
+[5 prove]  (run by hand, one time)
+              --> reports/headline_table.csv, poc_method_table_*.csv,
+                  poc_per_hotel_*.csv, poc_bootstrap.csv,
+                  reports/DECISIONS_dedup_entry.md
+```
 
-|**Trap 6**: Trusting a number|Audits every number in the|src/validate.py, src/data.py,|
+### Services
+
+The project has no web service. It has two external services:
+
+- **AWS S3** stores the raw data through DVC (`s3://hotel-oversell/dvc`, region `ap-southeast-2`).
+- **DagsHub MLflow** stores the optional tracking run.
+
+### Modules
+
+| Module | Group |
+|---|---|
+| `src/params.py`, `src/logger.py`, `src/data.py` | Shared base |
+| `src/features.py` | Feature rules |
+| `src/validate.py`, `src/split.py` | Data stages |
+| `src/backtest.py`, `src/rf_calibrate.py` | Methods |
+| `src/costs.py`, `src/tune.py`, `src/freeze_buffer.py`, `src/prove.py` | Cost and buffer logic |
+| `src/nightly.py` | Use of frozen buffers |
+| `src/tracking.py` | MLflow helpers |
+
+---
+
+## Repository Structure
+
+### Tree
+
+```
+hotel-oversell-main/
+├── .dvc/
+│   ├── .gitignore
+│   └── config
+├── .dvcignore
+├── .env.example
+├── .github/
+│   └── workflows/
+│       └── ci.yaml
+├── .gitignore
+├── README.md
+├── artifacts/                  (output of src/nightly.py)
+│   └── .gitkeep
+├── backups/
+│   └── before-tuning/          (copy of earlier outputs)
+│       ├── data/{interim,processed/{dedup,raw}}/*.parquet
+│       ├── models/{dedup,raw}/*.joblib
+│       ├── dvc.yaml, dvc.lock
+│       ├── DECISIONS_dedup_entry.md, PROVE_RUNS.txt
+│       └── experiment_comparison.{csv,txt}, headline_table.csv,
+│           poc_bootstrap.csv, poc_method_table_*.csv, poc_per_hotel_*.csv
+├── contract.py
+├── data/
+│   ├── interim/.gitkeep
+│   ├── processed/.gitkeep
+│   └── raw/
+│       ├── .gitkeep
+│       └── hotels.csv.dvc
+├── docs/
+│   ├── DATA_DICTIONARY.md      (empty file)
+│   ├── MODEL_CARD.md           (empty file)
+│   ├── PROVE_RUNS.txt
+│   └── RUNBOOK.md
+├── dvc.lock
+├── dvc.yaml
+├── logs/.gitkeep
+├── models/
+│   ├── .gitignore
+│   └── .gitkeep
+├── params.yaml
+├── reports/                    (32 files, see "Output Artifacts")
+├── requirements.lock.txt
+├── requirements.txt
+├── src/
+│   ├── __init__.py
+│   ├── backtest.py
+│   ├── costs.py
+│   ├── data.py
+│   ├── features.py
+│   ├── freeze_buffer.py
+│   ├── logger.py
+│   ├── nightly.py
+│   ├── params.py
+│   ├── prove.py
+│   ├── rf_calibrate.py
+│   ├── split.py
+│   ├── tracking.py
+│   ├── tune.py
+│   └── validate.py
+└── tests/
+    ├── __init__.py
+    ├── conftest.py
+    ├── test_costs.py
+    ├── test_features.py
+    ├── test_pipeline.py
+    ├── test_split.py
+    └── test_validate.py
+```
+
+### Root files
+
+**`contract.py`**
+- Purpose: Holds the client scoring rule. The file says: read it, do not change it.
+- Key functions: `split_periods(df)`, `nightly_table(bookings, prob)`, `night_cost(nights, oversell)`.
+- Constants: `WALK_COST = 300.0`, `WALK_CEILING = 10.0`, `TRAIN_END = "2016-07-01"`, `PROOF_START = "2017-01-01"`, `REQUIRED`.
+- Inputs: a bookings table with the columns `hotel`, `arrival_date`, `is_canceled`, `adr`, `nights`; one probability for each booking.
+- Outputs: a table with one row for each hotel and arrival night (`book`, `cancelled`, `expected`, `spread`, `stay_value`); a cost summary dictionary.
+- Dependencies: numpy, pandas.
+- Note: The file mentions `docs/EVALUATION_CONTRACT.md` and `tests/test_contract.py`. Neither file is in the ZIP.
+
+**`params.yaml`**
+- Purpose: Holds all settings (seed, cleaning, variants, model settings, buffer grid, bootstrap, MLflow).
+- Inputs: none. Outputs: none (read by code and by DVC).
+- Dependencies: PyYAML (through `src/params.py`).
+
+**`dvc.yaml`**
+- Purpose: Defines the five stages `validate`, `split`, `backtest`, `freeze_buffer`, `prove`.
+- Note: A comment says the `prove` stage is frozen. The file has no `frozen: true` key. A bare `dvc repro` therefore can run `prove`. See Troubleshooting.
+
+**`dvc.lock`**
+- Purpose: Records the hash of each stage input and output.
+- Do not edit this file by hand.
+
+**`.dvc/config`**
+- Purpose: Sets the DVC remote `storage` to `s3://hotel-oversell/dvc` in `ap-southeast-2`.
+
+**`.dvcignore`**
+- Purpose: Lists DVC ignore patterns. The file holds only the default comment.
+
+**`.env.example`**
+- Purpose: Template for the local `.env` file.
+- Variables: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_DEFAULT_REGION`, `DAGSHUB_USER_TOKEN`, `MLFLOW_TRACKING_URI`.
+- Note: `src/tracking.py` also reads `DAGSHUB_USERNAME`. The template does not list it.
+
+**`.gitignore`**
+- Purpose: Excludes the virtual environment, caches, secrets, logs, data files, model files and editor files from Git.
+
+**`requirements.txt`**
+- Purpose: Lists 13 packages without versions: pandas, numpy, scikit-learn, pyarrow, PyYAML, joblib, dvc, dvc-s3, mlflow, dagshub, python-dotenv, pytest, ruff, matplotlib.
+
+**`requirements.lock.txt`**
+- Purpose: Lists pinned versions of all installed packages.
+
+**`.github/workflows/ci.yaml`**
+- Purpose: Runs CI on each pull request and on each push to `main`.
+- Jobs: `lint-and-test` (`ruff check .`, `pytest -q`); `pipeline` (`dvc pull`, `dvc repro freeze_buffer`, check that `dvc.lock` is current, upload `reports/`).
+- Dependencies: Python 3.10, AWS secrets in GitHub.
+
+### `/src`
+
+**`src/params.py`**
+- Purpose: Loads `params.yaml` and defines the project paths.
+- Key functions: `load_params`, `require_params`, `variant_slugs`, `frozen_path`, `proof_table_path`.
+- Inputs: `params.yaml`. Outputs: a settings dictionary; path constants.
+- Dependencies: PyYAML, `src.logger`.
+
+**`src/logger.py`**
+- Purpose: Gives all modules one logging format. Writes to the console and to `logs/hotel_oversell.log`. Hides secrets.
+- Key items: `get_logger`, `RedactSecretsFilter`, `log_dataframe_summary`, `log_stage` (decorator), `run_cli`.
+- Inputs: the `LOG_LEVEL` environment variable (default `INFO`). Outputs: log lines.
+- Dependencies: Python standard library.
+
+**`src/data.py`**
+- Purpose: Reads and writes data.
+- Key functions: `read_raw`, `arrival_date`, `read_parquet_checked`, `load_period`, `write_parquet`, `write_json`, `read_json`, `load_contract`.
+- Inputs: `data/raw/hotels.csv` (through DVC or local file), parquet files, JSON files.
+- Outputs: DataFrames; files.
+- Dependencies: pandas, pyarrow, dvc (loaded only for `source: dvc`).
+- Rule: `read_raw` stops if the shape differs from 119,390 rows and 32 columns.
+
+**`src/features.py`**
+- Purpose: Defines which columns the models may use.
+- Key items: `AUDIT` (four groups), `FEATURES`, `CAT`, `NUM`, `assert_no_leakage`, class `RarePooler`.
+- Groups in `AUDIT`: known at booking; changes after booking (excluded); the outcome itself; bookkeeping.
+- `RarePooler`: keeps the top categories for `country`, `agent` and `company` (counts from training data only). It sets all other values to `other`.
+- Inputs: a training DataFrame. Outputs: a DataFrame with feature columns only.
+- Dependencies: pandas.
+
+**`src/validate.py`** (stage 1)
+- Purpose: Checks the raw data, flags repeated rows, repairs impossible values.
+- Key functions: `check_columns`, `flag_duplicates`, `duplicate_report`, `brief_checks`, `clean`, `main`. Class `DataValidationError`.
+- Inputs: `data/raw/hotels.csv`, `params.yaml` (`cleaning.adr_cap`, `data.*`).
+- Outputs: `data/interim/clean.parquet`; `reports/brief_checks.csv`, `decisions_log.csv`, `duplicates_by_hotel.csv`, `base_rates.csv`, `dup_facts.csv`.
+- Dependencies: pandas, `src.data`, `src.features`.
+- The code drops no row. It adds `is_dup`, `row_key` and `nights`.
+
+**`src/split.py`** (stage 2)
+- Purpose: Splits the bookings by arrival date for each variant.
+- Key functions: `check_split`, `check_no_group_straddles`, `variant_frames`, `main`.
+- Inputs: `data/interim/clean.parquet`, `contract.split_periods`.
+- Outputs: `data/processed/{dedup,raw}/{train,choose,proof}.parquet`; `reports/split_summary.csv`.
+- Dependencies: pandas, `contract`.
+
+**`src/backtest.py`** (stage 3)
+- Purpose: Trains the four methods on the train period. Writes diagnostics for the choose period.
+- Key classes: `FlatRate`, `SegmentTable`, `LogisticMethod`, `ForestMethod`.
+- Key functions: `build_methods`, `fit_all`, `save_methods`, `load_methods`, `nightly_tables`, `choose_diagnostics`, `drift_table`, `show_proof_tables`, `cli`.
+- Inputs: `train.parquet` and `choose.parquet` for each variant; `params.yaml`.
+- Outputs: `models/{dedup,raw}/{flat_rule,segment_table,logistic,random_forest}.joblib`; `reports/choose_diagnostics_*.csv`; `reports/drift_table_*.csv`.
+- Dependencies: scikit-learn, joblib, pandas, numpy.
+- Options: `--stage-only` (train and save only); `--prove` (also runs the proof stage).
+
+**`src/costs.py`**
+- Purpose: Turns expected cancellations into rooms to oversell. Compares methods in euros.
+- Key functions: `oversell`, `night_cost_vector`, `proof_table`, `per_hotel_table`, `bootstrap_savings`, `check_nightly`.
+- Inputs: nightly tables, frozen buffers. Outputs: cost tables.
+- Dependencies: numpy, pandas, `contract`.
+
+**`src/tune.py`**
+- Purpose: Searches the buffer grid on the choose period.
+- Key functions: `build_grid`, `sweep`, `pick`, `on_grid_edge`, `choose_headline`.
+- Rule in `pick`: take the cheapest buffer that meets the walk limit. If none meets it, take the buffer with the fewest walks and flag it.
+- Dependencies: numpy, pandas, `src.costs`.
+
+**`src/freeze_buffer.py`** (stage 4)
+- Purpose: Chooses one buffer for each method and variant. Saves the buffers. Never opens the proof period.
+- Key functions: `freeze_variant`, `compare_variants`, `plot_sweeps`, `main`.
+- Inputs: saved models, `choose.parquet`, `params.yaml` (`buffer_grid`).
+- Outputs: `reports/frozen_buffers_{dedup,raw}.json`, `choose_table_*.csv`, `variant_comparison.csv`, `buffer_sweep_*.png`.
+- Dependencies: matplotlib, pandas.
+
+**`src/prove.py`** (stage 5)
+- Purpose: Scores the proof period with the frozen buffers. Writes the final tables.
+- Key functions: `prove_variant`, `headline_table`, `ranking`, `decision_entry`, `record_run`, `log_to_mlflow`, `main`.
+- Inputs: frozen buffer files, saved models, `proof.parquet`.
+- Outputs: `reports/headline_table.csv`, `poc_method_table_*.csv`, `poc_per_hotel_*.csv`, `poc_bootstrap.csv`, `DECISIONS_dedup_entry.md`; one new line in `docs/PROVE_RUNS.txt`.
+- Dependencies: pandas, `src.costs`, optional `src.tracking`, `git` (for the commit hash).
+
+**`src/rf_calibrate.py`**
+- Purpose: Tests a recalibrated random forest with expanding-window folds. Reads train and choose periods only. This script is not a DVC stage.
+- Key items: `Calibrator` (`intercept`, `platt`, `isotonic`), `CalibratedForest`, `forward_folds`, `score_grid`, `run_candidate`, `main`.
+- Inputs: `params.yaml` (`rf_calibration`, `forward_chaining`), train and choose parquet files of the primary variant.
+- Outputs: `reports/rf_forward_chain.csv`, `reports/rf_forward_chain_folds.csv`.
+- Dependencies: scikit-learn, numpy, pandas.
+- The script stops if the data reaches the proof period.
+
+**`src/nightly.py`**
+- Purpose: Applies the frozen buffers to a window of nights.
+- Key functions: `parse_args`, `main`.
+- Inputs: `--from DATE`, `--nights N`, optional `--variant`, optional `--method`; `data/interim/clean.parquet`; frozen buffers; saved models.
+- Outputs: `artifacts/nightly_<date>_<N>n.csv` (columns `book`, `expected`, `spread`, `buffer`, `rooms_to_oversell`).
+- Dependencies: pandas, `src.backtest`, `src.costs`, `contract`.
+- Limit: `contract.nightly_table` needs the real outcome column. The script header says that live use with undecided bookings needs a change.
+
+**`src/tracking.py`**
+- Purpose: Helpers for MLflow on DagsHub.
+- Key functions: `setup_tracking`, `tracked_run`, `start_run`, `end_run`, `log_params`, `log_metrics`, `log_artifact`, `log_model_reference`.
+- Inputs: `MLFLOW_TRACKING_URI`, `DAGSHUB_USERNAME`, `DAGSHUB_USER_TOKEN` (or `MLFLOW_TRACKING_USERNAME` and `MLFLOW_TRACKING_PASSWORD`).
+- Outputs: MLflow runs.
+- Dependencies: mlflow, python-dotenv.
+- Only `src/prove.py` calls this module.
+
+### `/tests`
+
+The folder holds 69 test functions.
+
+| File | Tests | What it checks |
 |---|---|---|
-|because the client wrote it.|brief against the raw|reports/brief_checks.csv,|
-||dataset and discovers|reports/dup_facts.csv,|
-||exact duplicate|reports/variant_comparison|
-||rows, running parallel raw|.csv|
-||and dedup pipelines.||
+| `conftest.py` | fixtures | `build_raw` makes synthetic bookings; fixtures `make_raw` and `contract` |
+| `test_costs.py` | 16 | Buffer formulas, input checks, contract constants, proof table, bootstrap input check |
+| `test_features.py` | 14 | Leakage checks, feature groups, rare-category pooling |
+| `test_pipeline.py` | 15 | Runs all stages on synthetic data; checks models, frozen buffers, proof runs, `nightly` |
+| `test_split.py` | 9 | Period order, overlap, empty period, duplicate groups |
+| `test_validate.py` | 15 | Column audit, duplicate flags, cleaning rules |
 
+The tests use synthetic data. They need no AWS access.
 
+### `/docs`
 
-## **2. Notebook Deep Analysis** 
+| File | Purpose |
+|---|---|
+| `RUNBOOK.md` | Team setup and daily workflow (Git, DVC, AWS, MLflow) |
+| `PROVE_RUNS.txt` | One line for each proof run: time, commit, hash of frozen buffers |
+| `DATA_DICTIONARY.md` | Empty file (0 bytes) |
+| `MODEL_CARD.md` | Empty file (0 bytes) |
 
-- **Finding** : The repository contains **zero** .ipynb Jupyter Notebook files. 
+### `/data`, `/models`, `/artifacts`, `/logs`
 
-- **Architectural Assessment** : This is a deliberate software engineering decision aligned with Slide 7 and Slide 13 of the Problem Statement (C2_W06_D02_Build2_Announcement.pptx), which specify reproducible CLI scripts (python src/backtest.py and python src/nightly.py) and automated verification over ad-hoc notebooks. All exploratory analyses (base rates, brief checks, duplicate audits, and drift tables) are codified in src/validate.py, src/data.py, and src/split.py. 
+These folders hold generated files. Git tracks only the `.gitkeep` files. DVC tracks `data/raw/hotels.csv` through `hotels.csv.dvc` (MD5 `5bf588c5a949443e021fb7c847d31b27`, 16,855,599 bytes).
 
-## **3. MLOps Architecture Analysis** 
+### `/backups/before-tuning`
 
-### **Data Pipeline** 
+- Purpose: Holds a copy of earlier data, models, DVC files and reports.
+- No source file reads this folder. The folder name suggests a copy from before a tuning step. The code does not confirm this.
 
-- **Version Control** : Raw data (data/raw/hotels.csv) is tracked via DVC (data/raw/hotels.csv.dvc). 
+### `/reports`
 
-- **Contract Enforcement** : contract.py and src/validate.py act as an automated data gate before any splitting or training occurs. 
+See "Output Artifacts".
 
-- **Dual-Variant Processing** : src/data.py supports both raw ( rows) and dedup ( unique rows) execution tracks to quantify sensitivity to duplicate PMS records. 
+---
 
-- **Decision Provenance** : Every row kept or dropped is recorded in reports/decisions_log.csv via src/tracking.py. 
+## File Summary Table
 
-### **Training & Buffer Selection Pipeline** 
+| File | Purpose | Key Components | Dependencies |
+|---|---|---|---|
+| `contract.py` | Client cost rule and split dates | `split_periods`, `nightly_table`, `night_cost` | numpy, pandas |
+| `params.yaml` | All settings | `seed`, `models`, `buffer_grid`, `variants` | PyYAML |
+| `dvc.yaml` | Pipeline definition | 5 stages | DVC |
+| `dvc.lock` | Pipeline hashes | stage records | DVC |
+| `.dvc/config` | DVC remote | `s3://hotel-oversell/dvc` | dvc-s3 |
+| `.env.example` | Environment template | 5 variables | none |
+| `requirements.txt` | Package list | 13 packages | pip |
+| `requirements.lock.txt` | Pinned packages | full pin list | pip |
+| `.github/workflows/ci.yaml` | CI | `lint-and-test`, `pipeline` | GitHub Actions, AWS secrets |
+| `src/params.py` | Settings and paths | `load_params`, `require_params`, `variant_slugs` | PyYAML |
+| `src/logger.py` | Logging | `get_logger`, `RedactSecretsFilter`, `log_stage` | standard library |
+| `src/data.py` | Data input and output | `read_raw`, `load_period`, `load_contract` | pandas, pyarrow, dvc |
+| `src/features.py` | Feature rules | `AUDIT`, `FEATURES`, `RarePooler` | pandas |
+| `src/validate.py` | Stage 1 | `flag_duplicates`, `clean`, `brief_checks` | pandas |
+| `src/split.py` | Stage 2 | `check_split`, `variant_frames` | pandas, `contract` |
+| `src/backtest.py` | Stage 3 | `FlatRate`, `SegmentTable`, `LogisticMethod`, `ForestMethod` | scikit-learn, joblib |
+| `src/costs.py` | Cost logic | `oversell`, `proof_table`, `bootstrap_savings` | numpy, pandas |
+| `src/tune.py` | Buffer search | `build_grid`, `sweep`, `pick` | numpy, pandas |
+| `src/freeze_buffer.py` | Stage 4 | `freeze_variant`, `compare_variants` | matplotlib |
+| `src/prove.py` | Stage 5 | `prove_variant`, `record_run`, `decision_entry` | pandas, mlflow (optional) |
+| `src/rf_calibrate.py` | Forest calibration test | `Calibrator`, `CalibratedForest`, `forward_folds` | scikit-learn |
+| `src/nightly.py` | Nightly use | `parse_args`, `main` | pandas |
+| `src/tracking.py` | MLflow helpers | `tracked_run`, `log_metrics` | mlflow, python-dotenv |
+| `tests/*.py` | Tests | 69 test functions | pytest |
+| `docs/RUNBOOK.md` | Team guide | setup, workflow, fixes | none |
+| `docs/PROVE_RUNS.txt` | Proof-run log | 7 lines | none |
 
-- **Orchestration** : Managed through dvc.yaml and locked in dvc.lock. 
+---
 
-- **Model Families** : Compares non-ML baselines (flat rule, segment/deposit lookup tables) against regularized linear models (Logistic Regression) and gradient boosted trees (LightGBM, XGBoost) in src/backtest.py and src/tune.py. 
+## Prerequisites
 
-- **Post-Processing Calibration** : Decouples probability prediction ( ) from the business decision rule ( ) via src/freeze_buffer.py. 
+- Python 3.10 or later (CI uses 3.10).
+- Git.
+- An AWS account with access to the S3 bucket `hotel-oversell` (to pull data with DVC).
+- AWS CLI.
+- A DagsHub account and token (only for MLflow tracking).
 
-### **Model Artifacts & State Management** 
+---
 
-- **Models** : Stored in models/raw/ and models/dedup/ (git-ignored via models/.gitignore and 
+## Installation
 
-tracked by DVC). 
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/OmRohamare/hotel-oversell.git
+   cd hotel-oversell
+   ```
+   (The URL comes from `docs/RUNBOOK.md`.)
+2. Make a virtual environment:
+   ```bash
+   python -m venv .venv
+   source .venv/bin/activate        # Windows Git Bash: source .venv/Scripts/activate
+   ```
+3. Install the packages:
+   ```bash
+   pip install -r requirements.txt
+   ```
+4. Copy the environment template:
+   ```bash
+   cp .env.example .env
+   ```
+5. Set up AWS credentials:
+   ```bash
+   aws configure
+   ```
+6. Get the data:
+   ```bash
+   dvc pull
+   ```
 
-- **Policy State** : Safety buffers are stored as human-readable JSON artifacts in reports/frozen_buffers_raw.json and reports/frozen_buffers_dedup.json. 
+---
 
-### **Deployment & Inference (src/nightly.py)** 
+## Configuration
 
-- **Interface** : Command-line utility invoked via python src/nightly.py --from 2017-08-18 --nights 14. 
+### Environment variables
 
-- **Leakage Safety** : src/nightly.py invokes src/features.py with strict booking-time validation so that production inference cannot access post-booking columns. 
+| Variable | Used by | Meaning |
+|---|---|---|
+| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_DEFAULT_REGION` | DVC | S3 access |
+| `MLFLOW_TRACKING_URI` | `src/tracking.py` | MLflow server address |
+| `DAGSHUB_USERNAME` | `src/tracking.py` | DagsHub user name (not in `.env.example`) |
+| `DAGSHUB_USER_TOKEN` | `src/tracking.py` | DagsHub token |
+| `LOG_LEVEL` | `src/logger.py` | Log level, default `INFO` |
 
-### **Monitoring, Drift & Auditability** 
+Never commit `.env`.
 
-- **Temporal Drift Monitoring** : src/split.py generates reports/drift_table_raw.csv and reports/drift_table_dedup.csv to monitor shifts in cancellation rates, ADR, and lead times across Train, Choose, and Prove. 
+### `params.yaml`
 
-- **Proof Audit Trail** : docs/PROVE_RUNS.txt logs proof evaluations to verify that the test period (2017) was not used for iterative hyperparameter or buffer tuning. 
+| Key | Value | Meaning |
+|---|---|---|
+| `seed` | 42 | Random seed |
+| `data.source` | `dvc` | Read the CSV through DVC. Use `local` to read `data/raw/hotels.csv` directly |
+| `data.expected_rows`, `expected_cols` | 119390, 32 | Shape check |
+| `cleaning.adr_cap` | 2000 | Upper limit for `adr` |
+| `variants.primary`, `variants.list` | `dedup`; `dedup`, `raw` | Data variants |
+| `features.min_frequency` | 20 | Minimum count for one-hot categories (logistic) |
+| `features.pool_top` | country 20, agent 30, company 10 | Categories kept before pooling to `other` |
+| `models.segment_table.shrink_m` | 10 | Shrink strength toward the hotel rate |
+| `models.logistic` | `C` 0.5, `max_iter` 2000 | Logistic settings |
+| `models.random_forest` | 500 trees, `min_samples_leaf` 100, `max_features` 0.3, `max_depth` 8, `max_samples` 0.5 | Forest settings |
+| `buffer_grid` | constant -10 to 25; spread 0 to 6 in steps of 0.25 | Buffer search grid |
+| `bootstrap.n_boot` | 2000 | Bootstrap resamples |
+| `rf_calibration` | `platt`, 3 months | Used by `src/rf_calibrate.py` |
+| `forward_chaining` | 9 months minimum train, 3-month folds, buffer -6 to 10, target 6.5 walks per 1,000 | Used by `src/rf_calibrate.py` |
+| `mlflow` | enabled, experiment `hotel-oversell` | Tracking |
 
-- **CI/CD** : .github/workflows/ci.yaml runs automated tests (pytest) and static checks on push and pull requests. 
+**Known gaps in settings:**
+- `build_methods` in `src/backtest.py` passes `n_estimators`, `min_samples_leaf`, `max_features`, `n_jobs` and `random_state` to the forest. It does not pass `max_depth` or `max_samples`. These two settings have no effect in the code.
+- The header of `src/backtest.py` says "300 trees, at least 20 bookings per leaf". `params.yaml` says 500 trees and 100 per leaf. The code uses `params.yaml`.
+- `rf_calibration.method` is `platt`. The saved report `reports/rf_forward_chain.csv` names an `intercept` calibration. The run that made that report used a different setting.
 
-- **Configuration Management** : Centralized in params.yaml and parsed via src/params.py, with environment variables templated in .env.example and dependencies locked in requirements.lock.txt. 
+---
 
+## Usage
+
+Run all commands from the repository root.
+
+| Task | Command |
+|---|---|
+| Run stages 1 to 4 | `dvc repro freeze_buffer` |
+| Run one stage | `python -m src.validate` (same for `split`, `freeze_buffer`) |
+| Train and save models only | `python -m src.backtest --stage-only` |
+| Train, freeze buffers, print proof table | `python src/backtest.py` |
+| Score the proof period (one time only) | `python src/backtest.py --prove` |
+| Test forest calibration | `python -m src.rf_calibrate` |
+| Make a schedule for 14 nights | `python src/nightly.py --from 2017-08-18 --nights 14` |
+| Run tests | `pytest -q` |
+| Lint | `ruff check .` |
+
+---
+
+## Example Workflow
+
+1. Run the tests:
+   ```bash
+   pytest -q
+   ```
+2. Pull the data:
+   ```bash
+   dvc pull
+   ```
+3. Reproduce stages 1 to 4:
+   ```bash
+   dvc repro freeze_buffer
+   ```
+4. Read the buffers and the variant comparison:
+   ```bash
+   cat reports/frozen_buffers_dedup.json
+   cat reports/variant_comparison.csv
+   ```
+5. Agree on the final buffers with the team.
+6. Score the proof period one time. Do not run this in CI.
+   ```bash
+   python -m src.prove
+   ```
+7. Make a schedule:
+   ```bash
+   python src/nightly.py --from 2017-08-18 --nights 14
+   ```
+   The output is `artifacts/nightly_2017-08-18_14n.csv`.
+
+---
+
+## Input Data
+
+**File:** `data/raw/hotels.csv`. 119,390 rows and 32 columns. One row is one booking. The file you gave matches the MD5 hash in `hotels.csv.dvc`.
+
+**Hotels:** `City Hotel` (79,330 rows) and `Resort Hotel` (40,060 rows). Arrivals run from July 2015 to August 2017.
+
+**Target:** `is_canceled` (1 = cancelled).
+
+**Column groups** (from `src/features.py`):
+
+| Group | Columns |
+|---|---|
+| Known at booking (24 features) | `hotel`, `lead_time`, `arrival_date_month`, `arrival_date_week_number`, `arrival_date_day_of_month`, `stays_in_weekend_nights`, `stays_in_week_nights`, `adults`, `children`, `babies`, `meal`, `country`, `market_segment`, `distribution_channel`, `is_repeated_guest`, `previous_cancellations`, `previous_bookings_not_canceled`, `reserved_room_type`, `deposit_type`, `agent`, `company`, `days_in_waiting_list`, `customer_type`, `adr` |
+| Change after booking (excluded) | `booking_changes`, `required_car_parking_spaces`, `total_of_special_requests`, `assigned_room_type` |
+| The outcome (never a feature) | `reservation_status`, `reservation_status_date`, `is_canceled` |
+| Bookkeeping | `arrival_date_year`, `arrival_date`, `is_dup`, `row_key` |
+
+The file `docs/DATA_DICTIONARY.md` is empty. The table above is the only column description in the repository.
+
+**Cleaning rules** (`reports/decisions_log.csv`):
+
+| Rule | Rows changed |
+|---|---|
+| `adr` below 0 set to 0 | 1 |
+| `adr` above 2,000 set to 2,000 | 1 |
+| `children` missing set to 0 | 4 |
+| `agent` missing set to `none` | 16,340 |
+| `company` missing set to `none` | 112,593 |
+| `country` missing set to `none` | 488 |
+| Rows with 0 nights kept | 715 |
+| Rows dropped | 0 |
+
+**Repeated rows:** 31,994 rows (26.8%) repeat an earlier row in every column. The code flags them with `is_dup`. These rows cancel at 63.1%. First copies cancel at 27.5%. 92.9% of `Non Refund` rows are repeats. The ZIP does not show whether repeated rows are real separate bookings. The decision record leaves this question open for the client.
+
+---
+
+## Output Artifacts
+
+| Artifact | Created by | Meaning |
+|---|---|---|
+| `data/interim/clean.parquet` | `validate` | All bookings with `is_dup`, `row_key`, `nights` |
+| `data/processed/{dedup,raw}/{train,choose,proof}.parquet` | `split` | Time-based periods |
+| `models/{dedup,raw}/{flat_rule,segment_table,logistic,random_forest}.joblib` | `backtest` | Trained methods |
+| `reports/frozen_buffers_{dedup,raw}.json` | `freeze_buffer` | One buffer for each method; the headline model |
+| `reports/choose_table_*.csv`, `variant_comparison.csv` | `freeze_buffer` | Choose-period results |
+| `reports/buffer_sweep_*.png` | `freeze_buffer` | Cost and walks against buffer |
+| `reports/choose_diagnostics_*.csv`, `drift_table_*.csv` | `backtest` | AUC, night-level error, drift |
+| `reports/split_summary.csv` | `split` | Rows and cancellation rate for each period |
+| `reports/brief_checks.csv`, `decisions_log.csv`, `duplicates_by_hotel.csv`, `base_rates.csv`, `dup_facts.csv` | `validate` | Data checks |
+| `reports/headline_table.csv`, `poc_method_table_*.csv`, `poc_per_hotel_*.csv`, `poc_bootstrap.csv` | `prove` | Proof-period results |
+| `reports/DECISIONS_dedup_entry.md` | `prove` | Generated text about the duplicate decision |
+| `reports/rf_forward_chain*.csv` | `rf_calibrate` | Forest calibration test |
+| `reports/variant_comparison.csv` | `freeze_buffer` | Buffers on both variants |
+| `reports/experiment_comparison.{csv,txt}` | Purpose could not be determined from source code. | The `.csv` file is not UTF-8 text (it looks like UTF-16). The `.txt` file looks like a `dvc exp show` table. |
+| `artifacts/nightly_<date>_<N>n.csv` | `nightly` | Rooms to oversell for each hotel and night |
+| `docs/PROVE_RUNS.txt` | `prove` | Log of proof runs |
+| `logs/hotel_oversell.log` | all stages | Rotating log file (5 MB, 3 backups) |
+
+---
+
+## Training / Inference Process
+
+### Periods
+
+`contract.split_periods` splits by arrival date.
+
+| Period | Arrival dates | Use |
+|---|---|---|
+| train | before 2016-07-01 | Fit the methods |
+| choose | 2016-07-01 to 2016-12-31 | Choose each buffer |
+| proof | from 2017-01-01 | Score one time |
+
+### Methods
+
+| # | Method | Description |
+|---|---|---|
+| 1 | Flat rule | Each hotel's training cancellation rate for every booking |
+| 2 | Segment table | Rate for each hotel, market segment and channel, shrunk toward the hotel rate |
+| 3 | Logistic | One-hot categories, scaled numbers, `LogisticRegression` |
+| 4 | Random forest | Ordinal-coded categories, `RandomForestClassifier` |
+
+All methods output one cancellation probability for each booking.
+
+### Steps
+
+1. Build a nightly table: `book`, `cancelled`, `expected` (sum of probabilities), `spread`, `stay_value`.
+2. For each method, try every buffer in the grid on the choose period.
+3. Pick the cheapest buffer that keeps walks at or below 10 per 1,000 arrivals.
+4. Save the buffers in `reports/frozen_buffers_*.json`.
+5. Choose the headline model: the cheapest method that meets the walk limit on the choose period.
+6. Score the proof period with the frozen buffers. Compare all methods with the flat rule.
+7. Resample nights 2,000 times to estimate how stable the saving is.
+
+### Committed results
+
+These numbers come from the files in `reports/`. They are not new runs.
+
+**Proof period, deduplicated (primary), 486 hotel-nights:**
+
+| Method | Buffer | Cost (EUR) | Walks per 1,000 | Ceiling met | Saving vs flat |
+|---|---|---|---|---|---|
+| 1 Flat rule | spread 0.25 | 2,017,456 | 5.00 | Yes | 0.0% |
+| 2 Segment table | constant 1 | 1,781,573 | 5.51 | Yes | 11.7% |
+| 3 Logistic | constant 0 | 1,316,070 | 6.81 | Yes | 34.8% |
+| 4 Random forest | constant -2 | 1,368,529 | 13.25 | No | 32.2% |
+| Reference: sell nothing extra | - | 4,830,633 | 0.00 | Yes | -139.4% |
+
+**Proof period, raw (sensitivity):** The logistic buffer (constant -1) walks 12.31 per 1,000 and breaks the limit. The random forest walks 15.56 per 1,000 and also breaks the limit. Only the flat rule and the segment table meet the limit on raw data. The segment table costs 7.4% more than the flat rule.
+
+**The recommendation flips between variants.** The primary variant keeps logistic at buffer 0 within the limit. The raw variant does not. `reports/DECISIONS_dedup_entry.md` states this and marks the decision as open.
+
+**Per hotel (primary).** The random forest breaks the limit at the City Hotel (17.32 walks per 1,000). The logistic model meets the limit at each hotel (City 9.56, Resort 2.41).
+
+**Bootstrap (primary).** All three methods beat the flat rule in 100% of resamples. The logistic 5th to 95th percentile saving is EUR 612,862 to EUR 795,330. The code treats nights as independent.
+
+**Drift (primary).** Cancellation rate rises from 22.2% (train) to 29.0% (choose) to 31.9% (proof). Mean lead time rises from 58.0 to 92.3 days between train and choose.
+
+### Forest calibration test (`src/rf_calibrate.py`)
+
+The saved `reports/rf_forward_chain.csv` shows buffer 4 for logistic (cost EUR 1,890,437), buffer 0 for the plain forest (EUR 1,541,789) and buffer 3 for the intercept-calibrated forest (EUR 1,806,768). All three stay at or below 6.5 walks per 1,000 in the worst fold.
+
+### Inference
+
+`src/nightly.py` loads the saved model and the frozen buffer. It builds a nightly table for the requested window. It writes `rooms_to_oversell` for each hotel and night. The script reads bookings from `data/interim/clean.parquet`. It is not a live service.
+
+---
+
+## API Endpoints
+
+The repository has no API. Purpose could not be determined from source code.
+
+---
+
+## Notebook Descriptions
+
+The ZIP contains no `.ipynb` file. Some source files refer to "notebook cells" in their headers (for example `src/validate.py`: "cells 5, 7, 8"). The notebook itself is not in the ZIP. This README does not describe it.
+
+---
+
+## Scripts Description
+
+| Script | Command | Description |
+|---|---|---|
+| `src/validate.py` | `python -m src.validate` | Stage 1. Checks data, flags repeats, cleans values |
+| `src/split.py` | `python -m src.split` | Stage 2. Writes train, choose and proof files |
+| `src/backtest.py` | `python -m src.backtest --stage-only` | Stage 3. Trains and saves models |
+| `src/backtest.py` | `python src/backtest.py [--prove]` | Trains, freezes buffers, prints the proof table |
+| `src/freeze_buffer.py` | `python -m src.freeze_buffer` | Stage 4. Chooses and saves buffers |
+| `src/prove.py` | `python -m src.prove` | Stage 5. Scores the proof period |
+| `src/rf_calibrate.py` | `python -m src.rf_calibrate` | Tests a calibrated forest |
+| `src/nightly.py` | `python src/nightly.py --from DATE --nights N` | Writes a schedule of rooms to oversell |
+| `contract.py` | `python contract.py` | Prints the module description |
+
+---
+
+## Dependencies
+
+| Package | Use |
+|---|---|
+| pandas, numpy, pyarrow | Data handling and parquet files |
+| scikit-learn | Methods and metrics |
+| joblib | Model files |
+| PyYAML | Settings |
+| matplotlib | Buffer charts |
+| dvc, dvc-s3 | Data and pipeline versioning |
+| mlflow, dagshub, python-dotenv | Optional tracking |
+| pytest, ruff | Tests and lint |
+
+`requirements.txt` has no version pins. `requirements.lock.txt` pins the full set. CI installs from `requirements.txt` only.
+
+---
+
+## Troubleshooting
+
+| Problem | Action |
+|---|---|
+| `dvc pull` fails with an access error | Run `aws configure`. Check the bucket name and region in `.dvc/config` |
+| `Unexpected raw shape` | The CSV differs from 119,390 rows and 32 columns. Pull the correct file or change `data.expected_*` |
+| `contract.py (the client's rule) is needed` | Run from the repository root. Do not move `contract.py` |
+| `Model file missing` | Run `python -m src.backtest --stage-only` first |
+| `proof ... not found. Freeze the buffers` | Run `dvc repro freeze_buffer` first |
+| Log warning: proof period scored before | A proof run already exists in `docs/PROVE_RUNS.txt`. Do not change buffers after a proof result |
+| MLflow run does not appear | Set `MLFLOW_TRACKING_URI`, `DAGSHUB_USERNAME` and `DAGSHUB_USER_TOKEN` in `.env`. The proof stage still saves local results if MLflow fails |
+| Merge conflict in `dvc.lock` | Merge code first. Run `dvc repro`. Do not edit the file by hand |
+| `dvc repro` runs `prove` | The `prove` stage has no `frozen: true` key in `dvc.yaml`. Run `dvc freeze prove`, or use `dvc repro freeze_buffer` |
+
+---
+
+## Future Improvements
+
+These items come from gaps in the code and files. They are not planned work.
+
+1. Write `docs/DATA_DICTIONARY.md` and `docs/MODEL_CARD.md` (both are empty).
+2. Add `docs/EVALUATION_CONTRACT.md` and `tests/test_contract.py`. `contract.py` refers to both.
+3. Pass `max_depth` and `max_samples` to the forest in `build_methods`, or remove them from `params.yaml`.
+4. Add `DAGSHUB_USERNAME` to `.env.example`.
+5. Fix the header of `src/backtest.py` (it lists old forest settings) and the header of `src/prove.py` (it names `docs/DECISIONS.md`, but the code writes `reports/DECISIONS_dedup_entry.md`).
+6. Add `frozen: true` for `prove` in `dvc.yaml`, or change the comment.
+7. Pin package versions in `requirements.txt`.
+8. Adapt `nightly.py` for live use. At present it needs the real outcome column.
+9. Add a license file.
+10. Get the client answer on whether repeated rows are separate bookings.
+
+---
+
+## License
+
+**Code:** The ZIP contains no license file. License: not stated. Add a `LICENSE` file before public release.
+
+**Data:** The Build 2 deck states that the bookings are the Hotel Booking Demand datasets by Antonio, de Almeida and Nunes (2019), licensed CC BY 4.0. Keep this credit if you publish the data or results. Check the license terms at the original source.

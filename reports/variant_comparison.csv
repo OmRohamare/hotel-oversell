@@ -1,5 +1,5 @@
 ,buffer (dedup),buffer (raw),"choose cost (dedup, EUR)","choose cost (raw, EUR)",buffer moved?
 1 Flat rule,spread 0.25,spread 3.25,1074053.59,2257254.05,True
-2 Segment table,spread 0.5,spread 3,1044113.68,2435191.2,True
-3 Logistic,constant 0,constant 0,921734.11,1259458.64,False
-4 Random forest,constant 0,constant 0,1302123.46,1579281.0,False
+2 Segment table,constant 1,spread 3,972671.22,2440024.81,True
+3 Logistic,constant 0,constant -1,921369.93,1141165.89,True
+4 Random forest,constant -2,constant -2,1117130.79,1318888.31,False

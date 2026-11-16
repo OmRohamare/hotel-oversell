@@ -1,7 +1,7 @@
 decision,rows_touched,why
 nights = weekend + week nights,119390,contract.py needs a 'nights' column
 adr < 0 set to 0,1,a negative nightly rate is not a price
-"adr > 1,000 capped",1,one extreme rate would dominate a night's average stay value
+"adr > 2,000 capped",1,one extreme rate would dominate a night's average stay value
 children missing -> 0,4,blank child count; adults are listed separately
 agent missing -> 'none',16340,"missing is a category, not an error"
 company missing -> 'none',112593,"missing is a category, not an error"

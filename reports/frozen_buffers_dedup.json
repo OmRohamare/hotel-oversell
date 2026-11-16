@@ -9,8 +9,8 @@
       "ceiling_met_on_choose": true
     },
     "2 Segment table": {
-      "family": "spread",
-      "buffer": 0.5,
+      "family": "constant",
+      "buffer": 1.0,
       "ceiling_met_on_choose": true
     },
     "3 Logistic": {
@@ -20,7 +20,7 @@
     },
     "4 Random forest": {
       "family": "constant",
-      "buffer": 0.0,
+      "buffer": -2.0,
       "ceiling_met_on_choose": true
     }
   }

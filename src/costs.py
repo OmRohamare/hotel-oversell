@@ -33,8 +33,8 @@ def oversell(nt: pd.DataFrame, family: str, value: float) -> pd.Series:
         raise ValueError(
             f"unknown buffer family {family!r}; use one of {VALID_FAMILIES}"
         )
-    if value < 0:
-        raise ValueError(f"buffer must be >= 0, got {value}")
+    if family == "spread" and value < 0:
+        raise ValueError(f"spread buffer must be >= 0, got {value}")
     check_nightly(nt)
     buf = value if family == "constant" else value * nt["spread"]
     k = np.floor(nt["expected"] - buf).clip(lower=0)

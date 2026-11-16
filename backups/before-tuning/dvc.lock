@@ -1,0 +1,318 @@
+schema: '2.0'
+stages:
+  validate:
+    cmd: python -m src.validate
+    deps:
+    - path: data/raw/hotels.csv
+      hash: md5
+      md5: 5bf588c5a949443e021fb7c847d31b27
+      size: 16855599
+    - path: src/data.py
+      hash: md5
+      md5: 45f7ba0d0fc747fce0d8e67c23dc9df8
+      size: 6722
+    - path: src/features.py
+      hash: md5
+      md5: 21d374461227162049ddd1c258d9c2dc
+      size: 3634
+    - path: src/logger.py
+      hash: md5
+      md5: 274fabb78980c08263ba4720498d8ade
+      size: 6145
+    - path: src/params.py
+      hash: md5
+      md5: 2c186fe6dddfc5c04323e50f928c3057
+      size: 2726
+    - path: src/validate.py
+      hash: md5
+      md5: 63b0eae5fa5691d24936d74e1eb2a973
+      size: 9200
+    params:
+      params.yaml:
+        cleaning:
+          adr_cap: 1000
+        data:
+          source: dvc
+          raw_path: data/raw/hotels.csv
+          expected_rows: 119390
+          expected_cols: 32
+    outs:
+    - path: data/interim/clean.parquet
+      hash: md5
+      md5: 9e1f639aac50c5a45ef0bd6ed41add07
+      size: 2282209
+    - path: reports/base_rates.csv
+      hash: md5
+      md5: d29ab3fc1c9a38bbd9393f8f89812bb2
+      size: 162
+    - path: reports/brief_checks.csv
+      hash: md5
+      md5: 11f7480da57ac1fae053a0cdf89e10ec
+      size: 318
+    - path: reports/decisions_log.csv
+      hash: md5
+      md5: ec3e48676af3dff730065d9ed549440b
+      size: 857
+    - path: reports/dup_facts.csv
+      hash: md5
+      md5: 5acf4400f6ed1c86bd111c4cba9cdff5
+      size: 387
+    - path: reports/duplicates_by_hotel.csv
+      hash: md5
+      md5: 8d6e633ac98e387f40b339f80e326cc4
+      size: 164
+  split:
+    cmd: python -m src.split
+    deps:
+    - path: data/interim/clean.parquet
+      hash: md5
+      md5: 9e1f639aac50c5a45ef0bd6ed41add07
+      size: 2282209
+    - path: src/split.py
+      hash: md5
+      md5: 65b0893f28dc3b5fd6d7008d00f796b5
+      size: 4988
+    params:
+      params.yaml:
+        variants:
+          primary: dedup
+          list:
+          - dedup
+          - raw
+    outs:
+    - path: data/processed/dedup
+      hash: md5
+      md5: eaf6ca96762262e10baba770851bb551.dir
+      size: 2039371
+      nfiles: 3
+    - path: data/processed/raw
+      hash: md5
+      md5: 97853cfe6149bafe3fea3c2907865522.dir
+      size: 2289239
+      nfiles: 3
+    - path: reports/split_summary.csv
+      hash: md5
+      md5: 7704ab0f69ca7789c70043c1791795b1
+      size: 646
+  backtest:
+    cmd: python -m src.backtest --stage-only
+    deps:
+    - path: data/processed/dedup
+      hash: md5
+      md5: eaf6ca96762262e10baba770851bb551.dir
+      size: 2039371
+      nfiles: 3
+    - path: data/processed/raw
+      hash: md5
+      md5: 97853cfe6149bafe3fea3c2907865522.dir
+      size: 2289239
+      nfiles: 3
+    - path: src/backtest.py
+      hash: md5
+      md5: 49c91f3916fd1b59d62a5cff145e04af
+      size: 13861
+    - path: src/features.py
+      hash: md5
+      md5: 21d374461227162049ddd1c258d9c2dc
+      size: 3634
+    params:
+      params.yaml:
+        features:
+          min_frequency: 20
+          pool_top:
+            country: 20
+            agent: 30
+            company: 10
+        models:
+          segment_table:
+            shrink_m: 30
+          logistic:
+            C: 0.5
+            max_iter: 1000
+          random_forest:
+            n_estimators: 300
+            min_samples_leaf: 20
+            max_features: sqrt
+            n_jobs: -1
+        seed: 42
+        variants:
+          primary: dedup
+          list:
+          - dedup
+          - raw
+    outs:
+    - path: models/dedup
+      hash: md5
+      md5: ab9d49c5b54d64a7abf161cc05bd3565.dir
+      size: 23809058
+      nfiles: 4
+    - path: models/raw
+      hash: md5
+      md5: 44376ea5a8a3759837bcbf20344fb28b.dir
+      size: 28690482
+      nfiles: 4
+    - path: reports/choose_diagnostics_dedup.csv
+      hash: md5
+      md5: 9fddc23ada5ddf44a76dac3f977f4e48
+      size: 431
+    - path: reports/choose_diagnostics_raw.csv
+      hash: md5
+      md5: 4845a7866135c31968c9e31881e56af4
+      size: 435
+    - path: reports/drift_table_dedup.csv
+      hash: md5
+      md5: 74283dcefe227517220b3f4b95f0df3f
+      size: 186
+    - path: reports/drift_table_raw.csv
+      hash: md5
+      md5: f534c8f2274a1dc41d399436c5984630
+      size: 183
+  freeze_buffer:
+    cmd: python -m src.freeze_buffer
+    deps:
+    - path: data/processed/dedup/choose.parquet
+      hash: md5
+      md5: 6b6799088ba88dc5fd425e7ac381878a
+      size: 539716
+    - path: data/processed/raw/choose.parquet
+      hash: md5
+      md5: 137b488bbe67d2d3bdb938cac106d0e1
+      size: 599537
+    - path: models/dedup
+      hash: md5
+      md5: ab9d49c5b54d64a7abf161cc05bd3565.dir
+      size: 23809058
+      nfiles: 4
+    - path: models/raw
+      hash: md5
+      md5: 44376ea5a8a3759837bcbf20344fb28b.dir
+      size: 28690482
+      nfiles: 4
+    - path: src/costs.py
+      hash: md5
+      md5: 4d604463a318ca4389cdaf09a4a5a9f5
+      size: 5990
+    - path: src/freeze_buffer.py
+      hash: md5
+      md5: 3c89b4179d9d4185577971c2d0a276a8
+      size: 6788
+    - path: src/tune.py
+      hash: md5
+      md5: 15d1ce47a6db92e08df52a7454c1dd47
+      size: 2459
+    params:
+      params.yaml:
+        buffer_grid:
+          constant_max: 25
+          spread_max: 6.0
+          spread_step: 0.25
+        variants:
+          primary: dedup
+          list:
+          - dedup
+          - raw
+    outs:
+    - path: reports/buffer_sweep_dedup.png
+      hash: md5
+      md5: b5d72f488df1dd42a172daeb54496333
+      size: 98448
+    - path: reports/buffer_sweep_raw.png
+      hash: md5
+      md5: a0a80b555b69fabc91e4f6aed41b15b4
+      size: 99848
+    - path: reports/choose_table_dedup.csv
+      hash: md5
+      md5: d6fb8e54562834b1f48ffff400f0a4a5
+      size: 311
+    - path: reports/choose_table_raw.csv
+      hash: md5
+      md5: 0adf620859611f5e264890126207d229
+      size: 311
+    - path: reports/frozen_buffers_dedup.json
+      hash: md5
+      md5: c24e10a7960127f4fefe2b36870f8a40
+      size: 602
+    - path: reports/frozen_buffers_raw.json
+      hash: md5
+      md5: 248ed0dd72bc0c2ab3980b3e4b42f024
+      size: 600
+    - path: reports/variant_comparison.csv
+      hash: md5
+      md5: 208a00ed517fe0cf9c71f5a4f80cabb3
+      size: 350
+  prove:
+    cmd: python -m src.prove
+    deps:
+    - path: data/processed/dedup/proof.parquet
+      hash: md5
+      md5: 8c7d3a888d7f91cf5ac6095cc5879b2c
+      size: 726255
+    - path: data/processed/raw/proof.parquet
+      hash: md5
+      md5: 853938525d659489ff241cd8f5a19833
+      size: 809567
+    - path: models/dedup
+      hash: md5
+      md5: ab9d49c5b54d64a7abf161cc05bd3565.dir
+      size: 23809058
+      nfiles: 4
+    - path: models/raw
+      hash: md5
+      md5: 44376ea5a8a3759837bcbf20344fb28b.dir
+      size: 28690482
+      nfiles: 4
+    - path: reports/frozen_buffers_dedup.json
+      hash: md5
+      md5: c24e10a7960127f4fefe2b36870f8a40
+      size: 602
+    - path: reports/frozen_buffers_raw.json
+      hash: md5
+      md5: 248ed0dd72bc0c2ab3980b3e4b42f024
+      size: 600
+    - path: src/costs.py
+      hash: md5
+      md5: 4d604463a318ca4389cdaf09a4a5a9f5
+      size: 5990
+    - path: src/prove.py
+      hash: md5
+      md5: 0461c74d2cf760206713865f32052363
+      size: 11502
+    params:
+      params.yaml:
+        bootstrap:
+          n_boot: 2000
+        seed: 42
+        variants:
+          primary: dedup
+          list:
+          - dedup
+          - raw
+    outs:
+    - path: reports/DECISIONS_dedup_entry.md
+      hash: md5
+      md5: db4d6138ed0c28ee5c74b4a028f4f6f1
+      size: 1474
+    - path: reports/headline_table.csv
+      hash: md5
+      md5: ee543bb1414bc32d196449610472f71b
+      size: 342
+    - path: reports/poc_bootstrap.csv
+      hash: md5
+      md5: 675bb8135725c450dca912ab8b52e8c0
+      size: 269
+    - path: reports/poc_method_table_dedup.csv
+      hash: md5
+      md5: aef7c1c6c9029b9e2e45c9076949014b
+      size: 566
+    - path: reports/poc_method_table_raw.csv
+      hash: md5
+      md5: 68de9e816e602c0419ab5924b9c0d048
+      size: 562
+    - path: reports/poc_per_hotel_dedup.csv
+      hash: md5
+      md5: 9d8730cb56843ecad991a9dc34cc1990
+      size: 696
+    - path: reports/poc_per_hotel_raw.csv
+      hash: md5
+      md5: 4891729be6c617fbec92e17a1e719d64
+      size: 694

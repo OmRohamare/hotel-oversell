@@ -1,5 +1,5 @@
 method,family,buffer,ceiling_met_on_choose,cost_eur,empty_rooms,walked,walks_per_1000
 1 Flat rule,spread,3.25,True,2257254.05,5277,159,8.52
-2 Segment table,spread,3.0,True,2435191.2,5666,180,9.65
-3 Logistic,constant,0.0,True,1259458.64,3240,112,6.0
-4 Random forest,constant,0.0,True,1579281.0,4060,70,3.75
+2 Segment table,spread,3.0,True,2440024.81,5673,183,9.81
+3 Logistic,constant,-1.0,True,1141165.89,2924,157,8.42
+4 Random forest,constant,-2.0,True,1318888.31,3394,145,7.77

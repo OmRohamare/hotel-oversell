@@ -1,0 +1,6 @@
+method,buffer,cost_eur,empty_rooms,walked_guests,walks_per_1000,ceiling_met,nights,saving_vs_flat_eur,saving_vs_flat_%
+1 Flat rule,spread 0.25,2017455.66,3703,108,5.0,True,486,0.0,0.0
+2 Segment table,spread 0.5,1897187.06,3485,97,4.5,True,486,120268.59999999986,5.961399914980032
+3 Logistic,constant 0,1319776.94,2498,145,6.72,True,486,697678.72,34.5821092296026
+4 Random forest,constant 0,1605668.42,2866,106,4.91,True,486,411787.24,20.41121637339975
+"(ref) k = 0, sell nothing extra",-,4830632.69,10113,0,0.0,True,486,-2813177.0300000003,-139.44182693958192

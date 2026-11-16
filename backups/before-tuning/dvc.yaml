@@ -1,0 +1,127 @@
+﻿stages:
+  validate:
+    cmd: python -m src.validate
+    deps:
+      - data/raw/hotels.csv
+      - src/validate.py
+      - src/data.py
+      - src/features.py
+      - src/params.py
+      - src/logger.py
+    params:
+      - cleaning
+      - data
+    outs:
+      - data/interim/clean.parquet
+      - reports/brief_checks.csv:
+          cache: false
+      - reports/decisions_log.csv:
+          cache: false
+      - reports/duplicates_by_hotel.csv:
+          cache: false
+      - reports/base_rates.csv:
+          cache: false
+      - reports/dup_facts.csv:
+          cache: false
+
+  split:
+    cmd: python -m src.split
+    deps:
+      - data/interim/clean.parquet
+      - src/split.py
+    params:
+      - variants
+    outs:
+      - data/processed/dedup
+      - data/processed/raw
+      - reports/split_summary.csv:
+          cache: false
+
+  backtest:
+    cmd: python -m src.backtest --stage-only
+    deps:
+      - data/processed/dedup
+      - data/processed/raw
+      - src/backtest.py
+      - src/features.py
+    params:
+      - seed
+      - features
+      - models
+      - variants
+    outs:
+      - models/dedup
+      - models/raw
+      - reports/choose_diagnostics_dedup.csv:
+          cache: false
+      - reports/choose_diagnostics_raw.csv:
+          cache: false
+      - reports/drift_table_dedup.csv:
+          cache: false
+      - reports/drift_table_raw.csv:
+          cache: false
+
+  freeze_buffer:
+    cmd: python -m src.freeze_buffer
+    deps:
+      - models/dedup
+      - models/raw
+      - data/processed/dedup/choose.parquet
+      - data/processed/raw/choose.parquet
+      - src/freeze_buffer.py
+      - src/tune.py
+      - src/costs.py
+    params:
+      - buffer_grid
+      - variants
+    outs:
+      # Frozen buffers stay in Git so every change shows up in a pull request.
+      - reports/frozen_buffers_dedup.json:
+          cache: false
+      - reports/frozen_buffers_raw.json:
+          cache: false
+      - reports/choose_table_dedup.csv:
+          cache: false
+      - reports/choose_table_raw.csv:
+          cache: false
+      - reports/variant_comparison.csv:
+          cache: false
+      - reports/buffer_sweep_dedup.png:
+          cache: false
+      - reports/buffer_sweep_raw.png:
+          cache: false
+
+  # The proof period may be scored ONCE. This stage is frozen so a bare `dvc repro` skips it.
+  # To run it (by hand, on main, one person, never in CI):
+  #   dvc unfreeze prove && dvc repro prove && dvc freeze prove
+  prove:
+    frozen: true
+    cmd: python -m src.prove
+    deps:
+      - reports/frozen_buffers_dedup.json
+      - reports/frozen_buffers_raw.json
+      - models/dedup
+      - models/raw
+      - data/processed/dedup/proof.parquet
+      - data/processed/raw/proof.parquet
+      - src/prove.py
+      - src/costs.py
+    params:
+      - seed
+      - bootstrap
+      - variants
+    outs:
+      - reports/poc_method_table_dedup.csv:
+          cache: false
+      - reports/poc_method_table_raw.csv:
+          cache: false
+      - reports/poc_per_hotel_dedup.csv:
+          cache: false
+      - reports/poc_per_hotel_raw.csv:
+          cache: false
+      - reports/headline_table.csv:
+          cache: false
+      - reports/poc_bootstrap.csv:
+          cache: false
+      - reports/DECISIONS_dedup_entry.md:
+          cache: false

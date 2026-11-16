@@ -1,0 +1,4 @@
+candidate,chosen_buffer,total_cost_eur,worst_fold_walks
+Logistic (control),4,1890437.1,5.61
+"Forest, plain",0,1541788.66,6.32
+"Forest, calibrated (intercept)",3,1806768.49,5.69

@@ -1,0 +1,3 @@
+variant,base rate (train),base rate (proof),headline model,frozen buffer,proof walks/1000,ceiling met,saving vs flat %
+deduplicated (primary),0.22165764011440395,0.31910261264672474,3 Logistic,constant 0,6.81,True,34.76584511403834
+raw (sensitivity),0.35773135057062067,0.38697864182662767,3 Logistic,constant -1,12.31,False,56.766433709662316

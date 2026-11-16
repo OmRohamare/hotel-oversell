@@ -80,9 +80,22 @@ def test_unknown_family_is_rejected():
         oversell(_nightly(), "magic", 1)
 
 
-def test_negative_buffer_is_rejected():
+def test_negative_spread_buffer_is_rejected():
     with pytest.raises(ValueError, match=">= 0"):
-        oversell(_nightly(), "constant", -1)
+        oversell(_nightly(), "spread", -1)
+
+
+def test_negative_constant_buffer_oversells_more():
+    nt = _nightly()
+    base = oversell(nt, "constant", 0)
+    more = oversell(nt, "constant", -2)
+    # Night 1: expected 10.0, book 12 -> k goes from 10 to 12
+    assert more.iloc[0] == base.iloc[0] + 2
+    # Night 3: expected 0.4, book 5 -> k goes from 0 to 2
+    assert more.iloc[2] == 2
+    # Night 4: expected 20.0, book 8 -> capped at the night's bookings
+    assert more.iloc[3] == 8
+    assert (more >= base).all()
 
 
 def test_missing_nightly_columns_are_rejected():

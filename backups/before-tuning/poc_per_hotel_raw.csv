@@ -1,0 +1,9 @@
+method,hotel,nights,cost_eur,baseline_cost_eur,saving_eur,walks_per_1000,ceiling_met_at_hotel
+1 Flat rule,City Hotel,243,1695059.6,1695059.6,0.0,7.59,True
+1 Flat rule,Resort Hotel,243,2002678.54,2002678.54,0.0,1.1,True
+2 Segment table,City Hotel,243,2022662.32,1695059.6,-327602.72,10.12,False
+2 Segment table,Resort Hotel,243,1941696.09,2002678.54,60982.44999999995,7.67,True
+3 Logistic,City Hotel,243,747963.19,1695059.6,947096.4100000001,12.77,False
+3 Logistic,Resort Hotel,243,1014328.67,2002678.54,988349.87,3.18,True
+4 Random forest,City Hotel,243,741937.19,1695059.6,953122.4100000001,9.61,True
+4 Random forest,Resort Hotel,243,1162521.41,2002678.54,840157.1300000001,3.62,True

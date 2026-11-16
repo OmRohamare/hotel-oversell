@@ -15,12 +15,12 @@
     },
     "3 Logistic": {
       "family": "constant",
-      "buffer": 0.0,
+      "buffer": -1.0,
       "ceiling_met_on_choose": true
     },
     "4 Random forest": {
       "family": "constant",
-      "buffer": 0.0,
+      "buffer": -2.0,
       "ceiling_met_on_choose": true
     }
   }

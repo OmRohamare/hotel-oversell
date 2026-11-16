@@ -27,7 +27,8 @@ def build_grid(params: dict) -> list[tuple[str, float]]:
     g = params["buffer_grid"]
     if g["spread_step"] <= 0 or g["constant_max"] < 0 or g["spread_max"] < 0:
         raise ValueError("buffer_grid values must be positive")
-    grid = [("constant", float(v)) for v in range(int(g["constant_max"]) + 1)]
+    cmin = int(g.get("constant_min", 0))
+    grid = [("constant", float(v)) for v in range(cmin, int(g["constant_max"]) + 1)]
     grid += [
         ("spread", round(float(z), 2))
         for z in np.arange(0, g["spread_max"] + 1e-9, g["spread_step"])
@@ -55,8 +56,9 @@ def pick(sw: pd.DataFrame) -> tuple[pd.Series, bool]:
 
 def on_grid_edge(family: str, value: float, grid: list[tuple[str, float]]) -> bool:
     """True if the chosen buffer is 0 or the largest value of its family."""
-    top = max(v for f, v in grid if f == family)
-    return value in (0.0, top)
+    vals = [v for f, v in grid if f == family]
+    return value in (min(vals), max(vals))
+
 
 
 def choose_headline(choose_tbl: pd.DataFrame) -> str:

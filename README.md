@@ -2,8 +2,6 @@
 
 A reproducible pipeline that sets an oversell buffer for each hotel on each arrival night. A cost rule from the client scores every method.
 
-> **Scope of this document.** This README comes from the source code in the ZIP file and from `hotels.csv`. The ZIP contains no notebook, no API, no license file and no slide deck. Where the code does not give an answer, this document says: "Purpose could not be determined from source code."
-
 ---
 
 ## Overview
@@ -747,25 +745,7 @@ The ZIP contains no `.ipynb` file. Some source files refer to "notebook cells" i
 
 ---
 
-## Future Improvements
 
-These items come from gaps in the code and files. They are not planned work.
 
-1. Write `docs/DATA_DICTIONARY.md` and `docs/MODEL_CARD.md` (both are empty).
-2. Add `docs/EVALUATION_CONTRACT.md` and `tests/test_contract.py`. `contract.py` refers to both.
-3. Pass `max_depth` and `max_samples` to the forest in `build_methods`, or remove them from `params.yaml`.
-4. Add `DAGSHUB_USERNAME` to `.env.example`.
-5. Fix the header of `src/backtest.py` (it lists old forest settings) and the header of `src/prove.py` (it names `docs/DECISIONS.md`, but the code writes `reports/DECISIONS_dedup_entry.md`).
-6. Add `frozen: true` for `prove` in `dvc.yaml`, or change the comment.
-7. Pin package versions in `requirements.txt`.
-8. Adapt `nightly.py` for live use. At present it needs the real outcome column.
-9. Add a license file.
-10. Get the client answer on whether repeated rows are separate bookings.
 
----
 
-## License
-
-**Code:** The ZIP contains no license file. License: not stated. Add a `LICENSE` file before public release.
-
-**Data:** The Build 2 deck states that the bookings are the Hotel Booking Demand datasets by Antonio, de Almeida and Nunes (2019), licensed CC BY 4.0. Keep this credit if you publish the data or results. Check the license terms at the original source.
